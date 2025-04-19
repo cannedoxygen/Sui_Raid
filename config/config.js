@@ -1,0 +1,127 @@
+/**
+ * Configuration File
+ * Centralizes all application settings and environment variables
+ */
+
+// Load environment variables if not already loaded
+require('dotenv').config();
+
+/**
+ * Validate required environment variables
+ * @param {Array} requiredVars - List of required environment variables
+ * @throws {Error} If any required variables are missing
+ */
+const validateEnv = (requiredVars) => {
+  const missing = requiredVars.filter(varName => !process.env[varName]);
+  
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing required environment variables: ${missing.join(', ')}. ` +
+      'Please check your .env file.'
+    );
+  }
+};
+
+// Validate critical environment variables
+validateEnv([
+  'TELEGRAM_BOT_TOKEN',
+  'SUPABASE_URL',
+  'SUPABASE_KEY',
+  'SUI_RPC_URL'
+]);
+
+// Base configuration
+const config = {
+  // Application
+  env: process.env.NODE_ENV || 'development',
+  isProduction: process.env.NODE_ENV === 'production',
+  
+  // Server
+  server: {
+    port: parseInt(process.env.PORT || '3000', 10),
+    webhookEnabled: process.env.NODE_ENV === 'production' && !!process.env.WEBHOOK_URL,
+    webhookUrl: process.env.WEBHOOK_URL
+  },
+  
+  // Telegram Bot
+  telegram: {
+    token: process.env.TELEGRAM_BOT_TOKEN,
+    webhookPath: process.env.WEBHOOK_URL ? 
+      `/bot${process.env.TELEGRAM_BOT_TOKEN}` : undefined,
+    polling: process.env.NODE_ENV !== 'production'
+  },
+  
+  // Supabase Database
+  supabase: {
+    url: process.env.SUPABASE_URL,
+    key: process.env.SUPABASE_KEY
+  },
+  
+  // Twitter API
+  twitter: {
+    apiKey: process.env.TWITTER_API_KEY,
+    apiSecret: process.env.TWITTER_API_SECRET,
+    callbackUrl: process.env.TWITTER_CALLBACK_URL || 
+      'http://localhost:3000/twitter/callback'
+  },
+  
+  // Sui Blockchain
+  sui: {
+    rpcUrl: process.env.SUI_RPC_URL,
+    walletPrivateKey: process.env.SUI_WALLET_PRIVATE_KEY,
+    gasBudget: parseInt(process.env.SUI_GAS_BUDGET || '2000000', 10),
+    network: process.env.SUI_RPC_URL?.includes('devnet') ? 
+      'devnet' : process.env.SUI_RPC_URL?.includes('testnet') ? 
+      'testnet' : 'mainnet'
+  },
+  
+  // XP System
+  xp: {
+    actions: {
+      like: parseInt(process.env.XP_LIKE || '10', 10),
+      retweet: parseInt(process.env.XP_RETWEET || '10', 10),
+      comment: parseInt(process.env.XP_COMMENT || '15', 10),
+      commentWithImage: parseInt(process.env.XP_COMMENT_IMAGE || '20', 10),
+      commentWithGif: parseInt(process.env.XP_COMMENT_GIF || '25', 10),
+      bookmark: parseInt(process.env.XP_BOOKMARK || '5', 10)
+    },
+    // Default threshold for campaigns
+    defaultThreshold: parseInt(process.env.DEFAULT_XP_THRESHOLD || '1000', 10)
+  },
+  
+  // Logging
+  logging: {
+    level: process.env.LOG_LEVEL || (process.env.NODE_ENV === 'production' ? 'info' : 'debug')
+  },
+  
+  // Security
+  security: {
+    // Max age for OAuth states (1 hour)
+    oauthStateMaxAge: parseInt(process.env.OAUTH_STATE_MAX_AGE || '3600000', 10)
+  }
+};
+
+/**
+ * Get configuration value by path
+ * @param {string} path - Dot-notation path to configuration value
+ * @param {any} defaultValue - Default value if path is not found
+ * @returns {any} Configuration value
+ */
+const get = (path, defaultValue) => {
+  const parts = path.split('.');
+  let current = config;
+  
+  for (const part of parts) {
+    if (current[part] === undefined) {
+      return defaultValue;
+    }
+    current = current[part];
+  }
+  
+  return current;
+};
+
+module.exports = {
+  ...config,
+  get
+};
