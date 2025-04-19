@@ -1,0 +1,3 @@
+2025-04-19 15:41:07 ERROR: Uncaught exception: listen EADDRINUSE: address already in use :::3000
+2025-04-19 15:53:25 ERROR: Uncaught exception: listen EADDRINUSE: address already in use :::3000
+2025-04-19 16:08:41 ERROR: Failed to start the bot: Route.get() requires a callback function but got a [object Undefined]

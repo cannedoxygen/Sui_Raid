@@ -1,0 +1,30 @@
+2025-04-19 15:41:06 INFO: Bot is starting in production mode
+2025-04-19 15:41:06 INFO: Testing Supabase connection...
+2025-04-19 15:41:07 INFO: Supabase connection test successful, tables exist
+2025-04-19 15:41:07 INFO: Supabase connection established successfully
+2025-04-19 15:41:07 INFO: Connected to Supabase successfully
+2025-04-19 15:41:07 INFO: Bot middleware configured successfully
+2025-04-19 15:41:07 INFO: Bot commands registered successfully
+2025-04-19 15:41:07 INFO: Webhook set to https://suiraid.herokuapp.com
+2025-04-19 15:41:07 ERROR: Uncaught exception: listen EADDRINUSE: address already in use :::3000
+2025-04-19 15:53:25 INFO: Bot is starting in production mode
+2025-04-19 15:53:25 INFO: Testing Supabase connection...
+2025-04-19 15:53:25 INFO: Supabase connection test successful, tables exist
+2025-04-19 15:53:25 INFO: Supabase connection established successfully
+2025-04-19 15:53:25 INFO: Connected to Supabase successfully
+2025-04-19 15:53:25 INFO: Bot middleware configured successfully
+2025-04-19 15:53:25 INFO: Bot commands registered successfully
+2025-04-19 15:53:25 INFO: Webhook set to https://suiraid.herokuapp.com
+2025-04-19 15:53:25 ERROR: Uncaught exception: listen EADDRINUSE: address already in use :::3000
+2025-04-19 16:08:41 INFO: Bot is starting in production mode
+2025-04-19 16:08:41 INFO: Testing Supabase connection...
+2025-04-19 16:08:41 INFO: Supabase connection test successful, tables exist
+2025-04-19 16:09:23 INFO: Bot is starting in production mode
+2025-04-19 16:09:23 INFO: Testing Supabase connection...
+2025-04-19 16:09:23 INFO: Supabase connection test successful, tables exist
+2025-04-19 16:09:23 INFO: Supabase connection established successfully
+2025-04-19 16:09:23 INFO: Connected to Supabase successfully
+2025-04-19 16:09:23 INFO: Bot middleware configured successfully
+2025-04-19 16:09:23 INFO: Bot commands registered successfully
+2025-04-19 16:09:23 INFO: Webhook set to https://suiraid.herokuapp.com
+2025-04-19 16:09:23 INFO: Express server is running on port 3000

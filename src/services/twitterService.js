@@ -431,3 +431,40 @@ module.exports = {
   getUserRepliesToTweet,
   extractTweetId
 };
+
+/**
+ * Express route handler for Twitter OAuth2 callback
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
+module.exports.expressCallback = async (req, res) => {
+  try {
+    const { code, state } = req.query;
+    if (!code || !state) {
+      return res.status(400).send('Missing required parameters');
+    }
+    const result = await module.exports.handleTwitterCallback(code, state);
+    if (!result) {
+      return res.status(400).send('Authentication failed');
+    }
+    const user = await require('./userService').getUserById(result.telegramId);
+    if (!user) {
+      return res.status(404).send('User not found');
+    }
+    const botUsername = process.env.BOT_USERNAME;
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head><title>Twitter Account Connected</title></head>
+        <body style="font-family:Arial,sans-serif;text-align:center;padding:20px;">
+          <h1>✔ Twitter Account Connected!</h1>
+          <p>Your Twitter @${result.twitterUser.username} is now linked.</p>
+          <a href="https://t.me/${botUsername}" style="display:inline-block;padding:12px 24px;background:#1d9bf0;color:#fff;border-radius:4px;text-decoration:none;">Return to Bot</a>
+        </body>
+      </html>`;
+    res.send(html);
+  } catch (error) {
+    console.error('Error in expressCallback:', error);
+    res.status(500).send('Authentication failed: ' + error.message);
+  }
+};
