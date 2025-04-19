@@ -27,7 +27,9 @@ validateEnv([
   'TELEGRAM_BOT_TOKEN',
   'SUPABASE_URL',
   'SUPABASE_KEY',
-  'SUI_RPC_URL'
+  'SUI_RPC_URL',
+  'TWITTER_API_KEY',
+  'TWITTER_API_SECRET'
 ]);
 
 // Base configuration
@@ -57,13 +59,23 @@ const config = {
     key: process.env.SUPABASE_KEY
   },
   
-  // Twitter API
-  twitter: {
-    apiKey: process.env.TWITTER_API_KEY,
-    apiSecret: process.env.TWITTER_API_SECRET,
-    callbackUrl: process.env.TWITTER_CALLBACK_URL || 
-      'http://localhost:3000/twitter/callback'
-  },
+  // Twitter OAuth2 Client Credentials
+  twitter: (() => {
+    const clientId = process.env.TWITTER_CLIENT_ID || process.env.TWITTER_API_KEY;
+    const clientSecret = process.env.TWITTER_CLIENT_SECRET || process.env.TWITTER_API_SECRET;
+    // Determine callback URL: use production override in prod, default prod URL in prod, or localhost in development
+    let callbackUrl;
+    if (process.env.NODE_ENV === 'production') {
+      callbackUrl = process.env.TWITTER_CALLBACK_URL || 'https://sui-raid.vercel.app/twitter/callback';
+    } else {
+      callbackUrl = `http://localhost:${process.env.PORT || 3000}/twitter/callback`;
+    }
+    return {
+      apiKey: clientId,
+      apiSecret: clientSecret,
+      callbackUrl
+    };
+  })(),
   
   // Sui Blockchain
   sui: {

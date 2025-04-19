@@ -1,7 +1,6 @@
 {
   "name": "telegram-raid-bot",
   "version": "1.0.0",
-  "type": "module",
   "description": "Telegram bot for Twitter raids with Sui blockchain rewards",
   "main": "index.js",
   "scripts": {

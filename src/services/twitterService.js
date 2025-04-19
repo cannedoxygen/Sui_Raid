@@ -6,6 +6,7 @@
 const { TwitterApi } = require('twitter-api-v2');
 const crypto = require('crypto');
 const logger = require('../utils/logger');
+const config = require('../../config/config');
 const { getSupabase } = require('./supabaseService');
 const { linkTwitterAccount } = require('./userService');
 
@@ -18,13 +19,15 @@ const oauthStates = {};
  */
 const getTwitterClient = () => {
   try {
-    if (!process.env.TWITTER_API_KEY || !process.env.TWITTER_API_SECRET) {
-      throw new Error('Twitter API credentials not configured');
+    // Ensure OAuth2 client credentials are configured
+    const { apiKey, apiSecret } = config.twitter;
+    if (!apiKey || !apiSecret) {
+      throw new Error('Twitter OAuth2 client credentials not configured');
     }
-    
+    // Initialize client for OAuth2 PKCE flow
     return new TwitterApi({
-      appKey: process.env.TWITTER_API_KEY,
-      appSecret: process.env.TWITTER_API_SECRET
+      clientId: apiKey,
+      clientSecret: apiSecret
     });
   } catch (error) {
     logger.error('Error initializing Twitter client:', error.message);
@@ -50,10 +53,10 @@ const generateTwitterAuthUrl = async (telegramId) => {
       timestamp: Date.now()
     };
     
-    // Generate auth link
+    // Generate auth link with PKCE and CSRF protection using configured callback URL
     const authClient = client.generateOAuth2AuthLink(
-      process.env.TWITTER_CALLBACK_URL,
-      { 
+      config.twitter.callbackUrl,
+      {
         scope: [
           'tweet.read',
           'users.read',
@@ -67,6 +70,9 @@ const generateTwitterAuthUrl = async (telegramId) => {
       }
     );
     
+    // Store codeVerifier for PKCE along with state to validate on callback
+    oauthStates[state].codeVerifier = authClient.codeVerifier;
+    
     // Clean up old states (older than 1 hour)
     const now = Date.now();
     Object.keys(oauthStates).forEach(key => {
@@ -77,7 +83,7 @@ const generateTwitterAuthUrl = async (telegramId) => {
     
     return authClient.url;
   } catch (error) {
-    logger.error('Error generating Twitter auth URL:', error.message);
+    logger.error(`Error generating Twitter auth URL: ${error.message}`);
     throw new Error('Failed to generate Twitter authentication link');
   }
 };
@@ -95,16 +101,18 @@ const handleTwitterCallback = async (code, state) => {
       throw new Error('Invalid or expired authentication state');
     }
     
-    const { telegramId } = oauthStates[state];
+    // Retrieve Telegram ID and PKCE codeVerifier from stored state
+    const { telegramId, codeVerifier } = oauthStates[state];
     delete oauthStates[state]; // Clean up used state
     
     const client = getTwitterClient();
     
-    // Get access token
+    // Get access token using PKCE codeVerifier
     const { client: userClient, accessToken, refreshToken, expiresIn } = await client.loginWithOAuth2({
       code,
-      redirectUri: process.env.TWITTER_CALLBACK_URL,
-      codeVerifier: state // Used as code verifier in PKCE flow
+      // Use configured callback URL for OAuth2
+      redirectUri: config.twitter.callbackUrl,
+      codeVerifier // Use stored PKCE codeVerifier
     });
     
     // Get user info
@@ -143,7 +151,7 @@ const handleTwitterCallback = async (code, state) => {
       telegramId
     };
   } catch (error) {
-    logger.error('Error handling Twitter callback:', error.message);
+    logger.error(`Error handling Twitter callback: ${error.message}`);
     throw new Error('Failed to complete Twitter authentication');
   }
 };

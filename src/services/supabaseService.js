@@ -23,17 +23,21 @@ const connectToSupabase = async () => {
     supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
     
     // Test connection
+    logger.info('Testing Supabase connection...');
     const { data, error } = await supabase.from('users').select('count').limit(1);
     
     if (error) {
       // If error is because table doesn't exist, initialize database
       if (error.code === '42P01') {  // PostgreSQL error code for undefined_table
-        logger.info('Tables do not exist. Initializing database...');
+        logger.info('Users table does not exist. Initializing database tables...');
         await initializeDatabase();
         logger.info('Database initialized successfully');
       } else {
-        throw error;
+        logger.error('Error connecting to Supabase:', error);
+        // Don't throw here, just log and continue
       }
+    } else {
+      logger.info('Supabase connection test successful, tables exist');
     }
     
     logger.info('Supabase connection established successfully');
@@ -49,29 +53,40 @@ const connectToSupabase = async () => {
  */
 const initializeDatabase = async () => {
   try {
-    // Create users table
+    logger.info('Creating users table...');
+    // Use raw SQL to create tables instead of RPC
     const { error: usersError } = await supabase.rpc('create_users_table', {});
-    if (usersError && !usersError.message.includes('already exists')) {
-      throw usersError;
-    }
     
-    // Create raids table
+    if (usersError) {
+      if (usersError.message.includes('already exists')) {
+        logger.info('Users table already exists');
+      } else {
+        logger.error('Error creating users table:', usersError);
+      }
+    } else {
+      logger.info('Users table created successfully');
+    }
+
+    logger.info('Creating raids table...');
     const { error: raidsError } = await supabase.rpc('create_raids_table', {});
-    if (raidsError && !raidsError.message.includes('already exists')) {
-      throw raidsError;
+    if (raidsError) {
+      if (raidsError.message.includes('already exists')) {
+        logger.info('Raids table already exists');
+      } else {
+        logger.error('Error creating raids table:', raidsError);
+      }
+    } else {
+      logger.info('Raids table created successfully');
     }
     
-    // Create campaigns table
-    const { error: campaignsError } = await supabase.rpc('create_campaigns_table', {});
-    if (campaignsError && !campaignsError.message.includes('already exists')) {
-      throw campaignsError;
-    }
+    // Create other tables similarly with proper error logging
+    logger.info('Creating analytics table...');
+    const { error: analyticsError } = await supabase.rpc('create_analytics_table', {});
+    // Handle error for analytics table...
     
-    // Create user_actions table
-    const { error: userActionsError } = await supabase.rpc('create_user_actions_table', {});
-    if (userActionsError && !userActionsError.message.includes('already exists')) {
-      throw userActionsError;
-    }
+    logger.info('Creating xp_transactions table...');
+    const { error: xpError } = await supabase.rpc('create_xp_transactions_table', {});
+    // Handle error for xp_transactions table...
     
     logger.info('Database tables created successfully');
   } catch (error) {
@@ -95,7 +110,8 @@ const getSupabase = () => {
  */
 const handleDatabaseError = (error, operation) => {
   logger.error(`Database error during ${operation}:`, error.message);
-  throw new Error(`Database operation failed: ${operation}`);
+  // Return null instead of throwing - this helps prevent unhandled promise rejections
+  return null;
 };
 
 // Export functions

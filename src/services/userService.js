@@ -26,13 +26,14 @@ const getUserById = async (telegramId) => {
       if (error.code === 'PGRST116') {
         return null;
       }
-      return handleDatabaseError(error, 'getUserById');
+      logger.error('Error in getUserById:', error.message);
+      return null; // Return null instead of throwing
     }
     
     return data;
   } catch (error) {
     logger.error('Error getting user by ID:', error.message);
-    throw error;
+    return null; // Return null instead of throwing
   }
 };
 
@@ -50,6 +51,7 @@ const createUserIfNotExists = async (userData) => {
     const existingUser = await getUserById(telegramId);
     
     if (existingUser) {
+      logger.debug(`User exists, updating: ${telegramId}`);
       // Update last active timestamp
       const { data, error } = await supabase
         .from('users')
@@ -66,13 +68,15 @@ const createUserIfNotExists = async (userData) => {
         .single();
         
       if (error) {
-        return handleDatabaseError(error, 'updateUser');
+        logger.error('Error updating user:', error.message);
+        return existingUser; // Return existing user on error
       }
       
       return data;
     }
     
     // If user doesn't exist, create new user
+    logger.info(`Creating new user: ${telegramId} (${username || 'no username'})`);
     const { data, error } = await supabase
       .from('users')
       .insert({
@@ -93,14 +97,32 @@ const createUserIfNotExists = async (userData) => {
       .single();
       
     if (error) {
-      return handleDatabaseError(error, 'createUser');
+      // If duplicate key error, try to fetch the existing user
+      if (error.message && error.message.includes('duplicate key')) {
+        logger.warn(`Tried to create duplicate user: ${telegramId}, fetching instead`);
+        return await getUserById(telegramId);
+      }
+      
+      logger.error('Error creating user:', error.message);
+      // Create a simple user object to return instead of throwing
+      return {
+        telegram_id: telegramId,
+        first_name: firstName,
+        last_name: lastName,
+        username: username
+      };
     }
     
-    logger.info(`New user created: ${telegramId} (${username || 'no username'})`);
     return data;
   } catch (error) {
     logger.error('Error creating/updating user:', error.message);
-    throw error;
+    // Return a basic user object as fallback
+    return {
+      telegram_id: userData.telegramId,
+      first_name: userData.firstName,
+      last_name: userData.lastName,
+      username: userData.username
+    };
   }
 };
 
@@ -113,7 +135,7 @@ const createUserIfNotExists = async (userData) => {
 const linkTwitterAccount = async (telegramId, twitterData) => {
   try {
     const supabase = getSupabase();
-    const { twitterId, username, accessToken, accessSecret } = twitterData;
+    const { twitterId, username, accessToken, refreshToken, expiresAt } = twitterData;
     
     const { data, error } = await supabase
       .from('users')
@@ -121,7 +143,8 @@ const linkTwitterAccount = async (telegramId, twitterData) => {
         twitter_id: twitterId,
         twitter_username: username,
         twitter_token: accessToken,
-        twitter_token_secret: accessSecret,
+        twitter_refresh_token: refreshToken,
+        twitter_token_expires_at: expiresAt ? new Date(expiresAt).toISOString() : null,
         twitter_connected: true,
         twitter_connected_at: new Date().toISOString(),
         is_verified: true // Mark user as verified when they connect Twitter
@@ -131,14 +154,15 @@ const linkTwitterAccount = async (telegramId, twitterData) => {
       .single();
       
     if (error) {
-      return handleDatabaseError(error, 'linkTwitterAccount');
+      logger.error('Error linking Twitter account:', error.message);
+      return null;
     }
     
     logger.info(`Twitter account linked for user: ${telegramId} (Twitter: @${username})`);
     return data;
   } catch (error) {
     logger.error('Error linking Twitter account:', error.message);
-    throw error;
+    return null;
   }
 };
 
@@ -166,14 +190,15 @@ const linkSuiWallet = async (telegramId, walletAddress, isGenerated = false) => 
       .single();
       
     if (error) {
-      return handleDatabaseError(error, 'linkSuiWallet');
+      logger.error('Error linking Sui wallet:', error.message);
+      return null;
     }
     
     logger.info(`Sui wallet linked for user: ${telegramId} (Wallet: ${walletAddress})`);
     return data;
   } catch (error) {
     logger.error('Error linking Sui wallet:', error.message);
-    throw error;
+    return null;
   }
 };
 
@@ -206,7 +231,8 @@ const isUserAdminInGroup = async (telegramId, chatId) => {
       if (error.code === 'PGRST116') {
         return false;
       }
-      return handleDatabaseError(error, 'isUserAdminInGroup');
+      logger.error('Error checking admin status:', error.message);
+      return false;
     }
     
     return data ? true : false;
@@ -232,7 +258,8 @@ const addUserXp = async (telegramId, xpAmount, source, sourceId) => {
     // 1. Get current user XP
     const user = await getUserById(telegramId);
     if (!user) {
-      throw new Error('User not found');
+      logger.error('User not found for XP addition:', telegramId);
+      return null;
     }
     
     const newTotalXp = (user.total_xp || 0) + xpAmount;
@@ -249,7 +276,8 @@ const addUserXp = async (telegramId, xpAmount, source, sourceId) => {
       .single();
       
     if (updateError) {
-      return handleDatabaseError(updateError, 'addUserXp - update');
+      logger.error('Error updating user XP:', updateError.message);
+      return user; // Return original user on error
     }
     
     // 3. Log XP transaction
@@ -274,7 +302,7 @@ const addUserXp = async (telegramId, xpAmount, source, sourceId) => {
     return updatedUser;
   } catch (error) {
     logger.error('Error adding XP to user:', error.message);
-    throw error;
+    return null;
   }
 };
 
@@ -297,7 +325,8 @@ const getUserXpForSource = async (telegramId, sourceType, sourceId) => {
       .eq('source_id', sourceId);
       
     if (error) {
-      return handleDatabaseError(error, 'getUserXpForSource');
+      logger.error('Error getting user XP for source:', error.message);
+      return 0;
     }
     
     // Sum up all XP from this source

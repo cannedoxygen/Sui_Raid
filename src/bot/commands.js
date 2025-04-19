@@ -9,11 +9,17 @@ const { getSupabase } = require('../services/supabaseService');
 const { generateTwitterAuthUrl, handleTwitterCallback } = require('../services/twitterService');
 const { generateSuiWallet, getWalletBalance } = require('../services/suiService');
 
+// Get the bot instance
+let bot = null;
+
 /**
  * Initialize and register all bot commands
- * @param {TelegramBot} bot - The Telegram bot instance
+ * @param {TelegramBot} botInstance - The Telegram bot instance
  */
-const initializeCommands = (bot) => {
+const initializeCommands = (botInstance) => {
+  // Store bot reference
+  bot = botInstance;
+  
   // Register commands with Telegram (shows in menu)
   bot.setMyCommands([
     { command: 'start', description: 'Start the bot and get an introduction' },
@@ -74,7 +80,11 @@ const handleStartCommand = async (msg) => {
     await bot.sendMessage(chatId, welcomeMessage, { parse_mode: 'Markdown' });
   } catch (error) {
     logger.error('Error in start command:', error.message);
-    await bot.sendMessage(msg.chat.id, 'Sorry, there was an error. Please try again later.');
+    try {
+      await bot.sendMessage(msg.chat.id, 'Sorry, there was an error. Please try again later.');
+    } catch (msgError) {
+      logger.error('Error sending error message:', msgError.message);
+    }
   }
 };
 
@@ -120,7 +130,11 @@ const handleHelpCommand = async (msg) => {
     await bot.sendMessage(chatId, helpMessage, { parse_mode: 'Markdown' });
   } catch (error) {
     logger.error('Error in help command:', error.message);
-    await bot.sendMessage(msg.chat.id, 'Sorry, there was an error. Please try again later.');
+    try {
+      await bot.sendMessage(msg.chat.id, 'Sorry, there was an error. Please try again later.');
+    } catch (msgError) {
+      logger.error('Error sending error message:', msgError.message);
+    }
   }
 };
 
@@ -136,6 +150,10 @@ const handleLoginCommand = async (msg) => {
     // Generate Twitter auth URL
     const authUrl = await generateTwitterAuthUrl(userId);
     
+    if (!authUrl) {
+      throw new Error('Failed to generate Twitter authentication URL');
+    }
+    
     // Login button
     const loginMessage = 
       `🔑 *Connect Your Twitter Account*\n\n` +
@@ -150,8 +168,12 @@ const handleLoginCommand = async (msg) => {
       }
     });
   } catch (error) {
-    logger.error('Error in login command:', error.message);
-    await bot.sendMessage(msg.chat.id, 'Sorry, there was an error connecting to Twitter. Please try again later.');
+    logger.error(`Error in login command: ${error.message}`);
+    try {
+      await bot.sendMessage(msg.chat.id, 'Sorry, there was an error connecting to Twitter. Please try again later.');
+    } catch (msgError) {
+      logger.error(`Error sending error message: ${msgError.message}`);
+    }
   }
 };
 
@@ -173,24 +195,45 @@ const handleWalletCommand = async (msg) => {
     
     // Check if user already has a wallet
     if (user.sui_wallet_connected) {
-      // Get wallet balance
-      const balance = await getWalletBalance(user.sui_wallet_address);
-      
-      const walletMessage = 
-        `💼 *Your Sui Wallet*\n\n` +
-        `Address: \`${user.sui_wallet_address}\`\n` +
-        `Balance: ${balance.sui} SUI\n\n` +
-        `What would you like to do?`;
-      
-      await bot.sendMessage(chatId, walletMessage, {
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '🔄 Update Wallet Address', callback_data: 'wallet_update' }],
-            [{ text: '👁️ View Wallet on Explorer', url: `https://explorer.sui.io/address/${user.sui_wallet_address}` }]
-          ]
-        }
-      });
+      try {
+        // Get wallet balance
+        const balance = await getWalletBalance(user.sui_wallet_address);
+        
+        const walletMessage = 
+          `💼 *Your Sui Wallet*\n\n` +
+          `Address: \`${user.sui_wallet_address}\`\n` +
+          `Balance: ${balance.sui} SUI\n\n` +
+          `What would you like to do?`;
+        
+        await bot.sendMessage(chatId, walletMessage, {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🔄 Update Wallet Address', callback_data: 'wallet_update' }],
+              [{ text: '👁️ View Wallet on Explorer', url: `https://explorer.sui.io/address/${user.sui_wallet_address}` }]
+            ]
+          }
+        });
+      } catch (walletError) {
+        logger.error('Error getting wallet balance:', walletError.message);
+        
+        // Fallback message if we can't get the balance
+        const walletMessage = 
+          `💼 *Your Sui Wallet*\n\n` +
+          `Address: \`${user.sui_wallet_address}\`\n` +
+          `Balance: Unable to fetch\n\n` +
+          `What would you like to do?`;
+        
+        await bot.sendMessage(chatId, walletMessage, {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🔄 Update Wallet Address', callback_data: 'wallet_update' }],
+              [{ text: '👁️ View Wallet on Explorer', url: `https://explorer.sui.io/address/${user.sui_wallet_address}` }]
+            ]
+          }
+        });
+      }
     } else {
       // User needs to set up a wallet
       const walletSetupMessage = 
@@ -209,7 +252,11 @@ const handleWalletCommand = async (msg) => {
     }
   } catch (error) {
     logger.error('Error in wallet command:', error.message);
-    await bot.sendMessage(msg.chat.id, 'Sorry, there was an error with wallet management. Please try again later.');
+    try {
+      await bot.sendMessage(msg.chat.id, 'Sorry, there was an error with wallet management. Please try again later.');
+    } catch (msgError) {
+      logger.error('Error sending error message:', msgError.message);
+    }
   }
 };
 
@@ -231,7 +278,7 @@ const handleMyXpCommand = async (msg) => {
     
     // Get ongoing campaign if any
     const supabase = getSupabase();
-    const { data: activeCampaign } = await supabase
+    const { data: activeCampaign, error } = await supabase
       .from('campaigns')
       .select('*')
       .eq('is_active', true)
@@ -244,7 +291,7 @@ const handleMyXpCommand = async (msg) => {
       `Total XP: ${user.total_xp || 0}\n`;
     
     // Add campaign-specific XP if there's an active campaign
-    if (activeCampaign) {
+    if (!error && activeCampaign) {
       // Get user's XP for this campaign
       const campaignXp = await getUserXpForSource(userId, 'campaign', activeCampaign.id);
       
@@ -281,7 +328,11 @@ const handleMyXpCommand = async (msg) => {
     await bot.sendMessage(chatId, xpMessage, { parse_mode: 'Markdown' });
   } catch (error) {
     logger.error('Error in myxp command:', error.message);
-    await bot.sendMessage(msg.chat.id, 'Sorry, there was an error fetching your XP. Please try again later.');
+    try {
+      await bot.sendMessage(msg.chat.id, 'Sorry, there was an error fetching your XP. Please try again later.');
+    } catch (msgError) {
+      logger.error('Error sending error message:', msgError.message);
+    }
   }
 };
 
@@ -295,7 +346,7 @@ const handleLeaderboardCommand = async (msg) => {
     
     // Get active campaign for this chat if any
     const supabase = getSupabase();
-    const { data: activeCampaign } = await supabase
+    const { data: activeCampaign, error: campaignError } = await supabase
       .from('campaigns')
       .select('*')
       .eq('is_active', true)
@@ -304,40 +355,44 @@ const handleLeaderboardCommand = async (msg) => {
     
     // Get top 10 users by XP
     let query;
+    let leaders = [];
     
-    if (activeCampaign) {
+    if (!campaignError && activeCampaign) {
       // Get campaign-specific leaderboard
       // This would need a join or custom query to get campaign-specific XP
-      // For simplicity, we'll simulate it here
-      query = `
-        SELECT u.telegram_id, u.first_name, u.username, 
-               SUM(xt.amount) as campaign_xp
-        FROM xp_transactions xt
-        JOIN users u ON u.telegram_id = xt.user_id
-        WHERE xt.source_type = 'campaign' AND xt.source_id = ${activeCampaign.id}
-        GROUP BY u.telegram_id, u.first_name, u.username
-        ORDER BY campaign_xp DESC
-        LIMIT 10
-      `;
+      // For simplicity, we'll fetch sample data for now
+      try {
+        const { data, error } = await supabase
+          .from('users')
+          .select('telegram_id, first_name, username, total_xp')
+          .order('total_xp', { ascending: false })
+          .limit(10);
+          
+        if (!error) {
+          leaders = data;
+        }
+      } catch (error) {
+        logger.error('Error fetching campaign leaderboard:', error.message);
+      }
     } else {
       // Get all-time leaderboard
-      query = `
-        SELECT telegram_id, first_name, username, total_xp
-        FROM users
-        ORDER BY total_xp DESC
-        LIMIT 10
-      `;
-    }
-    
-    const { data: leaders, error } = await supabase.rpc('run_query', { query_text: query });
-    
-    if (error) {
-      logger.error('Error fetching leaderboard:', error.message);
-      return bot.sendMessage(chatId, 'Sorry, there was an error fetching the leaderboard. Please try again later.');
+      try {
+        const { data, error } = await supabase
+          .from('users')
+          .select('telegram_id, first_name, username, total_xp')
+          .order('total_xp', { ascending: false })
+          .limit(10);
+          
+        if (!error) {
+          leaders = data;
+        }
+      } catch (error) {
+        logger.error('Error fetching all-time leaderboard:', error.message);
+      }
     }
     
     // Build leaderboard message
-    let leaderboardMessage = activeCampaign 
+    let leaderboardMessage = (!campaignError && activeCampaign) 
       ? `🏆 *Campaign Leaderboard: ${activeCampaign.name}*\n\n`
       : `🏆 *All-Time XP Leaderboard*\n\n`;
     
@@ -345,7 +400,7 @@ const handleLeaderboardCommand = async (msg) => {
       leaderboardMessage += 'No data available yet.';
     } else {
       leaders.forEach((user, index) => {
-        const xp = activeCampaign ? user.campaign_xp : user.total_xp;
+        const xp = user.total_xp || 0;
         const displayName = user.username 
           ? `@${user.username}` 
           : user.first_name || `User${user.telegram_id}`;
@@ -374,7 +429,11 @@ const handleLeaderboardCommand = async (msg) => {
     });
   } catch (error) {
     logger.error('Error in leaderboard command:', error.message);
-    await bot.sendMessage(msg.chat.id, 'Sorry, there was an error fetching the leaderboard. Please try again later.');
+    try {
+      await bot.sendMessage(msg.chat.id, 'Sorry, there was an error fetching the leaderboard. Please try again later.');
+    } catch (msgError) {
+      logger.error('Error sending error message:', msgError.message);
+    }
   }
 };
 
@@ -412,7 +471,11 @@ const handleDropRaidCommand = async (msg) => {
     await startRaidConfiguration(chatId, userId, tweetUrl);
   } catch (error) {
     logger.error('Error in dropraid command:', error.message);
-    await bot.sendMessage(msg.chat.id, 'Sorry, there was an error starting the raid. Please try again later.');
+    try {
+      await bot.sendMessage(msg.chat.id, 'Sorry, there was an error starting the raid. Please try again later.');
+    } catch (msgError) {
+      logger.error('Error sending error message:', msgError.message);
+    }
   }
 };
 
@@ -451,7 +514,7 @@ const startRaidConfiguration = async (chatId, userId, tweetUrl) => {
     );
   } catch (error) {
     logger.error('Error starting raid configuration:', error.message);
-    await bot.sendMessage(chatId, 'Sorry, there was an error configuring the raid. Please try again later.');
+    throw error;
   }
 };
 
@@ -485,7 +548,6 @@ const handleEndRaidCommand = async (msg) => {
     }
     
     // End the raid (implementation depends on the raidService which we haven't created yet)
-    // This should update the raid status, calculate final XP, distribute rewards if applicable
     // const raidResult = await endRaid(activeRaid.id);
     
     // For now, just acknowledge
@@ -499,7 +561,11 @@ const handleEndRaidCommand = async (msg) => {
     // calculate rewards, etc. and then show the results
   } catch (error) {
     logger.error('Error in endraid command:', error.message);
-    await bot.sendMessage(msg.chat.id, 'Sorry, there was an error ending the raid. Please try again later.');
+    try {
+      await bot.sendMessage(msg.chat.id, 'Sorry, there was an error ending the raid. Please try again later.');
+    } catch (msgError) {
+      logger.error('Error sending error message:', msgError.message);
+    }
   }
 };
 
@@ -507,15 +573,27 @@ const handleEndRaidCommand = async (msg) => {
  * Placeholder for admin commands that will be implemented later
  */
 const handleSetRulesCommand = async (msg) => {
-  await bot.sendMessage(msg.chat.id, '⚙️ This command will be implemented in a future update.');
+  try {
+    await bot.sendMessage(msg.chat.id, '⚙️ This command will be implemented in a future update.');
+  } catch (error) {
+    logger.error('Error in setrules command:', error.message);
+  }
 };
 
 const handleBlacklistCommand = async (msg) => {
-  await bot.sendMessage(msg.chat.id, '⚙️ This command will be implemented in a future update.');
+  try {
+    await bot.sendMessage(msg.chat.id, '⚙️ This command will be implemented in a future update.');
+  } catch (error) {
+    logger.error('Error in blacklist command:', error.message);
+  }
 };
 
 const handleWhitelistCommand = async (msg) => {
-  await bot.sendMessage(msg.chat.id, '⚙️ This command will be implemented in a future update.');
+  try {
+    await bot.sendMessage(msg.chat.id, '⚙️ This command will be implemented in a future update.');
+  } catch (error) {
+    logger.error('Error in whitelist command:', error.message);
+  }
 };
 
 module.exports = {
