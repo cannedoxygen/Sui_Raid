@@ -38,19 +38,40 @@ const config = {
   env: process.env.NODE_ENV || 'development',
   isProduction: process.env.NODE_ENV === 'production',
   
-  // Server
+  // Server configuration
   server: {
+    // Port for Express server
     port: parseInt(process.env.PORT || '3000', 10),
-    webhookEnabled: process.env.NODE_ENV === 'production' && !!process.env.WEBHOOK_URL,
-    webhookUrl: process.env.WEBHOOK_URL
+    // Enable webhook in production when a valid URL (http/https) is provided
+    webhookEnabled: process.env.NODE_ENV === 'production' && /^https?:\/\//i.test(process.env.WEBHOOK_URL || ''),
+    // Normalize and validate webhook URL (must start with http(s)://); strip trailing slash and any /bot<token> suffix
+    webhookUrl: (() => {
+      const raw = process.env.WEBHOOK_URL || '';
+      const trimmed = raw.trim();
+      // Must be a valid HTTP(S) URL
+      if (!/^https?:\/\//i.test(trimmed)) {
+        return '';
+      }
+      let u = trimmed.replace(/\/+$/, '');
+      // Remove appended bot token path if present
+      const suffix = `/bot${process.env.TELEGRAM_BOT_TOKEN}`;
+      if (suffix && u.endsWith(suffix)) {
+        u = u.slice(0, -suffix.length);
+      }
+      return u;
+    })()
   },
   
-  // Telegram Bot
+  // Telegram Bot configuration
   telegram: {
+    // Bot token provided by Telegram
     token: process.env.TELEGRAM_BOT_TOKEN,
-    webhookPath: process.env.WEBHOOK_URL ? 
-      `/bot${process.env.TELEGRAM_BOT_TOKEN}` : undefined,
-    polling: process.env.NODE_ENV !== 'production'
+    // Webhook path suffix (appended to server.webhookUrl)
+    webhookPath: process.env.WEBHOOK_URL 
+      ? `/bot${process.env.TELEGRAM_BOT_TOKEN}` 
+      : undefined,
+    // Enable polling when no valid webhook is configured (for development/local)
+    polling: !(process.env.NODE_ENV === 'production' && /^https?:\/\//i.test(process.env.WEBHOOK_URL || ''))
   },
   
   // Supabase Database
@@ -63,10 +84,21 @@ const config = {
   twitter: (() => {
     const clientId = process.env.TWITTER_CLIENT_ID || process.env.TWITTER_API_KEY;
     const clientSecret = process.env.TWITTER_CLIENT_SECRET || process.env.TWITTER_API_SECRET;
-    // Determine callback URL: use production override in prod, default prod URL in prod, or localhost in development
+    // Determine callback URL: honour override, support Vercel, with fallback
     let callbackUrl;
     if (process.env.NODE_ENV === 'production') {
-      callbackUrl = process.env.TWITTER_CALLBACK_URL || 'https://sui-raid.vercel.app/twitter/callback';
+      // 1) honour an explicit override
+      if (process.env.TWITTER_CALLBACK_URL) {
+        callbackUrl = process.env.TWITTER_CALLBACK_URL;
+      }
+      // 2) use Vercel serverless route if VERCEL_URL is set
+      else if (process.env.VERCEL_URL) {
+        callbackUrl = `https://${process.env.VERCEL_URL}/api/twitter/callback`;
+      }
+      // 3) fallback to your known prod domain
+      else {
+        callbackUrl = 'https://sui-raid.vercel.app/twitter/callback';
+      }
     } else {
       callbackUrl = `http://localhost:${process.env.PORT || 3000}/twitter/callback`;
     }

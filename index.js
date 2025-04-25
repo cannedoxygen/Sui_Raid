@@ -10,13 +10,20 @@ require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const express = require('express');
 const { initializeCommands } = require('./src/bot/commands');
+const { setupCallbackHandlers } = require('./src/bot/callbackHandlers');
 const { setupMiddleware } = require('./src/bot/middleware');
 const { connectToSupabase } = require('./src/services/supabaseService');
 const logger = require('./src/utils/logger');
 
-// Create Express app for webhook (if needed in production)
+// Create Express app for webhook and Twitter OAuth callback
 const app = express();
 const PORT = process.env.PORT || 3000;
+// Parse JSON bodies for webhook updates and OAuth2 callbacks
+app.use(express.json());
+// Mount Twitter OAuth2 callback handler
+const twitterCallbackHandler = require('./api/twitter/callback');
+app.get('/api/twitter/callback', twitterCallbackHandler);
+app.post('/api/twitter/callback', twitterCallbackHandler);
 
 // Check for required environment variables
 if (!process.env.TELEGRAM_BOT_TOKEN) {
@@ -24,41 +31,56 @@ if (!process.env.TELEGRAM_BOT_TOKEN) {
   process.exit(1);
 }
 
-// Initialize the bot with your token
-const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, {
-  polling: process.env.NODE_ENV !== 'production' // Use polling in development
-});
+const config = require('./config/config');
+// Initialize the bot without polling; we'll start polling or webhook after setup
+const bot = new TelegramBot(config.telegram.token, { polling: false });
 
 // Log bot startup
-logger.info(`Bot is starting in ${process.env.NODE_ENV || 'development'} mode`);
+logger.info(`Bot is starting in ${config.env} mode`);
 
 // Connect to Supabase
 connectToSupabase()
   .then(() => {
     logger.info('Connected to Supabase successfully');
     
-    // Setup bot middleware for processing messages
+    // Setup bot middleware and commands
     setupMiddleware(bot);
-    
-    // Register all bot commands
     initializeCommands(bot);
+    // Set up callback query handlers for inline buttons
+    setupCallbackHandlers(bot);
     
-    
-    // Only boot HTTP routes & listener in production
-    if (process.env.NODE_ENV === 'production') {
-      // Health check
+    // Decide between polling and webhook based on configuration
+    if (config.telegram.polling) {
+      logger.info('Starting polling');
+      bot.deleteWebHook()
+        .then(() => bot.startPolling())
+        .then(() => logger.info('Polling started'))
+        .catch(err => logger.error('Failed to start polling:', err.message));
+      // Start Express server to handle Twitter OAuth callback in polling mode
+      app.listen(PORT, () => logger.info(`Express server is running on port ${PORT}`));
+    } else {
+      logger.info('Webhook mode enabled');
+      // Health check endpoint
       app.get('/', (req, res) => res.send('Telegram Raid Bot is running!'));
-      // Twitter OAuth callback
-      app.get('/twitter/callback', require('./src/services/twitterService').expressCallback);
-      // Webhook setup if configured
-      if (process.env.WEBHOOK_URL) {
-        bot.setWebHook(`${process.env.WEBHOOK_URL}/bot${process.env.TELEGRAM_BOT_TOKEN}`);
-        app.use(express.json());
-        app.post(`/bot${process.env.TELEGRAM_BOT_TOKEN}`, (req, res) => { bot.processUpdate(req.body); res.sendStatus(200); });
-        logger.info(`Webhook set to ${process.env.WEBHOOK_URL}`);
+      // Webhook setup if enabled
+      if (config.server.webhookEnabled) {
+        const hookUrl = `${config.server.webhookUrl}/bot${config.telegram.token}`;
+        // Attempt to set the Telegram webhook
+        bot.setWebHook(hookUrl)
+          .then(() => logger.info(`Telegram webhook set to ${hookUrl}`))
+          .catch(err => {
+            // Log detailed error from Telegram API
+            const errMsg = err.response?.body || err.message;
+            logger.error('Failed to set Telegram webhook:', errMsg);
+          });
+        // Route incoming webhook updates
+        app.post(`/bot${config.telegram.token}`, (req, res) => { bot.processUpdate(req.body); res.sendStatus(200); });
+      } else {
+        logger.warn('Webhook is not enabled. Bot will not receive updates.');
       }
       // Start Express server
-      app.listen(PORT, () => logger.info(`Express server is running on port ${PORT}`));
+      const port = config.server.port || PORT;
+      app.listen(port, () => logger.info(`Express server is running on port ${port}`));
     }
   })
   .catch(err => {
