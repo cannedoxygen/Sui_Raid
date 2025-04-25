@@ -20,18 +20,22 @@ const oauthStates = {};
 const getTwitterClient = () => {
   try {
     // Ensure OAuth2 client credentials are configured
-    const { apiKey, apiSecret } = config.twitter;
-    if (!apiKey || !apiSecret) {
+    const clientId = process.env.TWITTER_CLIENT_ID || process.env.TWITTER_API_KEY;
+    const clientSecret = process.env.TWITTER_CLIENT_SECRET || process.env.TWITTER_API_SECRET;
+    
+    if (!clientId || !clientSecret) {
       throw new Error('Twitter OAuth2 client credentials not configured');
     }
+    
     // Initialize client for OAuth2 PKCE flow
+    logger.debug('Creating Twitter API client with configured credentials');
     return new TwitterApi({
-      clientId: apiKey,
-      clientSecret: apiSecret
+      clientId: clientId,
+      clientSecret: clientSecret
     });
   } catch (error) {
-    logger.error('Error initializing Twitter client:', error.message);
-    throw new Error('Failed to initialize Twitter client');
+    logger.error(`Error initializing Twitter client: ${error.message}`);
+    throw new Error(`Failed to initialize Twitter client: ${error.message}`);
   }
 };
 
@@ -53,9 +57,20 @@ const generateTwitterAuthUrl = async (telegramId) => {
       timestamp: Date.now()
     };
     
-    // Generate auth link with PKCE and CSRF protection using configured callback URL
+    // Build callback URL based on environment
+    let callbackUrl;
+    if (process.env.NODE_ENV === 'production') {
+      callbackUrl = process.env.TWITTER_CALLBACK_URL || `${process.env.WEBHOOK_URL}/twitter/callback`;
+    } else {
+      const port = process.env.PORT || 3000;
+      callbackUrl = process.env.TWITTER_CALLBACK_URL || `http://localhost:${port}/twitter/callback`;
+    }
+    
+    logger.info(`Using Twitter callback URL: ${callbackUrl}`);
+    
+    // Generate auth link with PKCE and CSRF protection
     const authClient = client.generateOAuth2AuthLink(
-      config.twitter.callbackUrl,
+      callbackUrl,
       {
         scope: [
           'tweet.read',
@@ -81,10 +96,11 @@ const generateTwitterAuthUrl = async (telegramId) => {
       }
     });
     
+    logger.debug(`Generated Twitter auth URL for user ${telegramId}, state: ${state.substring(0, 6)}...`);
     return authClient.url;
   } catch (error) {
     logger.error(`Error generating Twitter auth URL: ${error.message}`);
-    throw new Error('Failed to generate Twitter authentication link');
+    throw new Error(`Failed to generate Twitter authentication link: ${error.message}`);
   }
 };
 
@@ -98,20 +114,31 @@ const handleTwitterCallback = async (code, state) => {
   try {
     // Verify state to prevent CSRF
     if (!oauthStates[state]) {
+      logger.warn(`Invalid or expired OAuth state: ${state.substring(0, 6)}...`);
       throw new Error('Invalid or expired authentication state');
     }
     
     // Retrieve Telegram ID and PKCE codeVerifier from stored state
     const { telegramId, codeVerifier } = oauthStates[state];
+    logger.info(`Processing Twitter callback for user ${telegramId}, state: ${state.substring(0, 6)}...`);
+    
     delete oauthStates[state]; // Clean up used state
     
     const client = getTwitterClient();
     
+    // Build callback URL based on environment (must match the one used to generate auth URL)
+    let callbackUrl;
+    if (process.env.NODE_ENV === 'production') {
+      callbackUrl = process.env.TWITTER_CALLBACK_URL || `${process.env.WEBHOOK_URL}/twitter/callback`;
+    } else {
+      const port = process.env.PORT || 3000;
+      callbackUrl = process.env.TWITTER_CALLBACK_URL || `http://localhost:${port}/twitter/callback`;
+    }
+    
     // Get access token using PKCE codeVerifier
     const { client: userClient, accessToken, refreshToken, expiresIn } = await client.loginWithOAuth2({
       code,
-      // Use configured callback URL for OAuth2
-      redirectUri: config.twitter.callbackUrl,
+      redirectUri: callbackUrl,
       codeVerifier // Use stored PKCE codeVerifier
     });
     
@@ -119,6 +146,8 @@ const handleTwitterCallback = async (code, state) => {
     const { data: twitterUser } = await userClient.v2.me({
       'user.fields': ['id', 'name', 'username', 'created_at', 'public_metrics']
     });
+    
+    logger.info(`Twitter user authenticated: @${twitterUser.username} (ID: ${twitterUser.id})`);
     
     // Link Twitter account to user
     await linkTwitterAccount(telegramId, {
@@ -131,20 +160,28 @@ const handleTwitterCallback = async (code, state) => {
     
     // Store additional Twitter user info
     const supabase = getSupabase();
-    await supabase
-      .from('twitter_accounts')
-      .upsert({
-        twitter_id: twitterUser.id,
-        username: twitterUser.username,
-        name: twitterUser.name,
-        created_at: twitterUser.created_at,
-        followers_count: twitterUser.public_metrics?.followers_count || 0,
-        following_count: twitterUser.public_metrics?.following_count || 0,
-        tweet_count: twitterUser.public_metrics?.tweet_count || 0,
-        verified: false, // Twitter API v2 has changed verification handling
-        telegram_id: telegramId,
-        last_updated: new Date().toISOString()
-      });
+    if (supabase) {
+      try {
+        await supabase
+          .from('twitter_accounts')
+          .upsert({
+            twitter_id: twitterUser.id,
+            username: twitterUser.username,
+            name: twitterUser.name,
+            created_at: twitterUser.created_at,
+            followers_count: twitterUser.public_metrics?.followers_count || 0,
+            following_count: twitterUser.public_metrics?.following_count || 0,
+            tweet_count: twitterUser.public_metrics?.tweet_count || 0,
+            verified: false, // Twitter API v2 has changed verification handling
+            telegram_id: telegramId,
+            last_updated: new Date().toISOString()
+          });
+        logger.debug(`Twitter account details stored for @${twitterUser.username}`);
+      } catch (error) {
+        logger.warn(`Failed to store Twitter account details: ${error.message}`);
+        // Continue anyway - this is not critical
+      }
+    }
     
     return {
       twitterUser,
@@ -152,7 +189,7 @@ const handleTwitterCallback = async (code, state) => {
     };
   } catch (error) {
     logger.error(`Error handling Twitter callback: ${error.message}`);
-    throw new Error('Failed to complete Twitter authentication');
+    throw new Error(`Failed to complete Twitter authentication: ${error.message}`);
   }
 };
 
@@ -165,44 +202,66 @@ const getUserTwitterClient = async (telegramId) => {
   try {
     // Get user's Twitter tokens
     const supabase = getSupabase();
+    
+    // Handle cases where Supabase isn't connected
+    if (!supabase) {
+      logger.error('Cannot get Twitter client: Supabase is not connected');
+      return null;
+    }
+    
     const { data: user, error } = await supabase
       .from('users')
       .select('twitter_id, twitter_token, twitter_token_secret, twitter_refresh_token, twitter_token_expires_at')
       .eq('telegram_id', telegramId)
       .single();
     
-    if (error || !user.twitter_token) {
+    if (error) {
+      logger.error(`Error fetching user Twitter credentials: ${error.message}`);
+      return null;
+    }
+    
+    if (!user || !user.twitter_token) {
+      logger.debug(`User ${telegramId} has no Twitter token`);
       return null;
     }
     
     // Check if token is expired and refresh if needed
     if (user.twitter_token_expires_at && new Date(user.twitter_token_expires_at) < new Date()) {
       if (!user.twitter_refresh_token) {
+        logger.warn(`User ${telegramId} has expired token but no refresh token`);
         return null; // Cannot refresh without refresh token
       }
       
       // Refresh token
+      logger.debug(`Refreshing Twitter token for user ${telegramId}`);
       const client = getTwitterClient();
-      const { client: refreshedClient, accessToken, refreshToken, expiresIn } = 
-        await client.refreshOAuth2Token(user.twitter_refresh_token);
-      
-      // Update tokens in database
-      await supabase
-        .from('users')
-        .update({
-          twitter_token: accessToken,
-          twitter_refresh_token: refreshToken,
-          twitter_token_expires_at: new Date(Date.now() + expiresIn * 1000).toISOString()
-        })
-        .eq('telegram_id', telegramId);
-      
-      return refreshedClient;
+      try {
+        const { client: refreshedClient, accessToken, refreshToken, expiresIn } = 
+          await client.refreshOAuth2Token(user.twitter_refresh_token);
+        
+        // Update tokens in database
+        await supabase
+          .from('users')
+          .update({
+            twitter_token: accessToken,
+            twitter_refresh_token: refreshToken,
+            twitter_token_expires_at: new Date(Date.now() + expiresIn * 1000).toISOString()
+          })
+          .eq('telegram_id', telegramId);
+        
+        logger.info(`Twitter token refreshed for user ${telegramId}`);
+        return refreshedClient;
+      } catch (refreshError) {
+        logger.error(`Error refreshing Twitter token: ${refreshError.message}`);
+        return null;
+      }
     }
     
     // Create client with existing token
+    logger.debug(`Creating Twitter client for user ${telegramId} with existing token`);
     return new TwitterApi(user.twitter_token);
   } catch (error) {
-    logger.error('Error getting user Twitter client:', error.message);
+    logger.error(`Error getting user Twitter client: ${error.message}`);
     return null;
   }
 };
@@ -217,27 +276,45 @@ const getTweetInfo = async (tweetUrl) => {
     // Extract tweet ID from URL
     const tweetId = extractTweetId(tweetUrl);
     if (!tweetId) {
+      logger.error(`Invalid tweet URL: ${tweetUrl}`);
       throw new Error('Invalid tweet URL');
     }
     
+    logger.info(`Fetching info for tweet ID: ${tweetId}`);
     const client = getTwitterClient();
-    const { data: tweet } = await client.v2.singleTweet(tweetId, {
-      'tweet.fields': [
-        'created_at',
-        'author_id',
-        'public_metrics',
-        'entities',
-        'attachments'
-      ],
-      'user.fields': ['username', 'name', 'profile_image_url'],
-      'expansions': ['author_id', 'attachments.media_keys'],
-      'media.fields': ['type', 'url', 'preview_image_url']
-    });
     
-    return tweet;
+    try {
+      const { data: tweet } = await client.v2.singleTweet(tweetId, {
+        'tweet.fields': [
+          'created_at',
+          'author_id',
+          'public_metrics',
+          'entities',
+          'attachments'
+        ],
+        'user.fields': ['username', 'name', 'profile_image_url'],
+        'expansions': ['author_id', 'attachments.media_keys'],
+        'media.fields': ['type', 'url', 'preview_image_url']
+      });
+      
+      logger.debug(`Tweet info fetched successfully for ID: ${tweetId}`);
+      return tweet;
+    } catch (tweetError) {
+      // Handle Twitter API errors more specifically
+      if (tweetError.code === 429) {
+        logger.error('Twitter rate limit exceeded, please try again later');
+        throw new Error('Twitter rate limit exceeded, please try again later');
+      } else if (tweetError.code === 401) {
+        logger.error('Twitter authentication error, token may be invalid');
+        throw new Error('Twitter authentication error, please reconnect your account');
+      } else {
+        logger.error(`Twitter API error: ${tweetError.message}`);
+        throw new Error(`Twitter API error: ${tweetError.message}`);
+      }
+    }
   } catch (error) {
-    logger.error('Error getting tweet info:', error.message);
-    throw new Error('Failed to fetch tweet information');
+    logger.error(`Error getting tweet info: ${error.message}`);
+    throw new Error(`Failed to fetch tweet information: ${error.message}`);
   }
 };
 
@@ -251,8 +328,20 @@ const extractTweetId = (url) => {
     // Handle both twitter.com and x.com URLs
     const twitterRegex = /(?:twitter|x)\.com\/\w+\/status\/(\d+)/;
     const match = url.match(twitterRegex);
-    return match ? match[1] : null;
+    if (match) {
+      return match[1];
+    }
+    
+    // Handle t.co shortened URLs
+    const shortUrlRegex = /t\.co\/([a-zA-Z0-9]+)/;
+    const shortMatch = url.match(shortUrlRegex);
+    if (shortMatch) {
+      logger.warn('Shortened URL detected, may need to expand URL first');
+    }
+    
+    return null;
   } catch (error) {
+    logger.error(`Error extracting tweet ID: ${error.message}`);
     return null;
   }
 };
@@ -267,13 +356,15 @@ const likeTweet = async (telegramId, tweetId) => {
   try {
     const userClient = await getUserTwitterClient(telegramId);
     if (!userClient) {
+      logger.warn(`Cannot like tweet: No Twitter client for user ${telegramId}`);
       return false;
     }
     
+    logger.info(`User ${telegramId} liking tweet ${tweetId}`);
     await userClient.v2.like(userClient.currentUser.id, tweetId);
     return true;
   } catch (error) {
-    logger.error('Error liking tweet:', error.message);
+    logger.error(`Error liking tweet: ${error.message}`);
     return false;
   }
 };
@@ -288,13 +379,15 @@ const retweetTweet = async (telegramId, tweetId) => {
   try {
     const userClient = await getUserTwitterClient(telegramId);
     if (!userClient) {
+      logger.warn(`Cannot retweet: No Twitter client for user ${telegramId}`);
       return false;
     }
     
+    logger.info(`User ${telegramId} retweeting tweet ${tweetId}`);
     await userClient.v2.retweet(userClient.currentUser.id, tweetId);
     return true;
   } catch (error) {
-    logger.error('Error retweeting tweet:', error.message);
+    logger.error(`Error retweeting tweet: ${error.message}`);
     return false;
   }
 };
@@ -304,27 +397,29 @@ const retweetTweet = async (telegramId, tweetId) => {
  * @param {number} telegramId - User's Telegram ID
  * @param {string} tweetId - Tweet ID to reply to
  * @param {string} text - Reply text
- * @param {Object} mediaIds - Optional media IDs to attach
+ * @param {Array} mediaIds - Optional media IDs to attach
  * @returns {Object|null} Created tweet or null on failure
  */
 const replyToTweet = async (telegramId, tweetId, text, mediaIds = []) => {
   try {
     const userClient = await getUserTwitterClient(telegramId);
     if (!userClient) {
+      logger.warn(`Cannot reply to tweet: No Twitter client for user ${telegramId}`);
       return null;
     }
     
+    logger.info(`User ${telegramId} replying to tweet ${tweetId}`);
     const { data } = await userClient.v2.reply(
       text,
       tweetId,
       {
-        media: { media_ids: mediaIds }
+        media: { media_ids: mediaIds.length > 0 ? mediaIds : undefined }
       }
     );
     
     return data;
   } catch (error) {
-    logger.error('Error replying to tweet:', error.message);
+    logger.error(`Error replying to tweet: ${error.message}`);
     return null;
   }
 };
@@ -339,16 +434,19 @@ const hasUserLikedTweet = async (telegramId, tweetId) => {
   try {
     const userClient = await getUserTwitterClient(telegramId);
     if (!userClient) {
+      logger.warn(`Cannot check likes: No Twitter client for user ${telegramId}`);
       return false;
     }
     
+    // Get user's liked tweets
+    logger.debug(`Checking if user ${telegramId} liked tweet ${tweetId}`);
     const { data } = await userClient.v2.userLikedTweets(userClient.currentUser.id, {
       max_results: 100
     });
     
     return data.some(tweet => tweet.id === tweetId);
   } catch (error) {
-    logger.error('Error checking if user liked tweet:', error.message);
+    logger.error(`Error checking if user liked tweet: ${error.message}`);
     return false;
   }
 };
@@ -363,11 +461,13 @@ const hasUserRetweetedTweet = async (telegramId, tweetId) => {
   try {
     const userClient = await getUserTwitterClient(telegramId);
     if (!userClient) {
+      logger.warn(`Cannot check retweets: No Twitter client for user ${telegramId}`);
       return false;
     }
     
     // There's no direct API for checking retweets, so we get user's recent tweets
     // and check if any are retweets of the target tweet
+    logger.debug(`Checking if user ${telegramId} retweeted tweet ${tweetId}`);
     const { data: tweets } = await userClient.v2.userTimeline(userClient.currentUser.id, {
       max_results: 100,
       'tweet.fields': ['referenced_tweets']
@@ -380,7 +480,7 @@ const hasUserRetweetedTweet = async (telegramId, tweetId) => {
       )
     );
   } catch (error) {
-    logger.error('Error checking if user retweeted tweet:', error.message);
+    logger.error(`Error checking if user retweeted tweet: ${error.message}`);
     return false;
   }
 };
@@ -395,13 +495,15 @@ const getUserRepliesToTweet = async (telegramId, tweetId) => {
   try {
     const userClient = await getUserTwitterClient(telegramId);
     if (!userClient) {
+      logger.warn(`Cannot check replies: No Twitter client for user ${telegramId}`);
       return [];
     }
     
     // Get user's recent tweets
+    logger.debug(`Checking if user ${telegramId} replied to tweet ${tweetId}`);
     const { data: tweets } = await userClient.v2.userTimeline(userClient.currentUser.id, {
       max_results: 100,
-      'tweet.fields': ['referenced_tweets'],
+      'tweet.fields': ['referenced_tweets', 'text', 'attachments'],
       expansions: ['attachments.media_keys'],
       'media.fields': ['type', 'url']
     });
@@ -414,8 +516,113 @@ const getUserRepliesToTweet = async (telegramId, tweetId) => {
       )
     );
   } catch (error) {
-    logger.error('Error getting user replies to tweet:', error.message);
+    logger.error(`Error getting user replies to tweet: ${error.message}`);
     return [];
+  }
+};
+
+/**
+ * Express route handler for Twitter OAuth2 callback
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
+const expressCallback = async (req, res) => {
+  try {
+    const { code, state } = req.query;
+    logger.info(`Twitter callback received with state: ${state?.substring(0, 6)}...`);
+    
+    if (!code || !state) {
+      logger.error('Twitter callback missing code or state');
+      return res.status(400).send('Missing required parameters');
+    }
+    
+    const result = await handleTwitterCallback(code, state);
+    if (!result) {
+      logger.error('Twitter authentication failed, no result returned');
+      return res.status(400).send('Authentication failed');
+    }
+    
+    const { getUserById } = require('./userService');
+    const user = await getUserById(result.telegramId);
+    if (!user) {
+      logger.error(`User ${result.telegramId} not found after Twitter authentication`);
+      return res.status(404).send('User not found');
+    }
+    
+    const botUsername = process.env.BOT_USERNAME || 'your_bot';
+    logger.info(`Twitter auth successful for user ${result.telegramId}, redirecting to bot`);
+    
+    // Create success page with redirect back to bot
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Twitter Account Connected</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <style>
+            body {
+              font-family: Arial, sans-serif;
+              text-align: center;
+              margin: 0;
+              padding: 20px;
+              background-color: #f5f8fa;
+              color: #14171a;
+            }
+            .container {
+              max-width: 600px;
+              margin: 0 auto;
+              background-color: white;
+              border-radius: 16px;
+              padding: 30px;
+              box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            }
+            h1 {
+              color: #1d9bf0;
+              margin-bottom: 20px;
+            }
+            p {
+              margin-bottom: 30px;
+              font-size: 16px;
+              line-height: 1.5;
+            }
+            .button {
+              display: inline-block;
+              background-color: #1d9bf0;
+              color: white;
+              text-decoration: none;
+              padding: 12px 24px;
+              border-radius: 50px;
+              font-weight: bold;
+              transition: background-color 0.3s;
+            }
+            .button:hover {
+              background-color: #1a8cd8;
+            }
+            .success-icon {
+              font-size: 72px;
+              margin-bottom: 20px;
+              color: #4BB543;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="success-icon">✓</div>
+            <h1>Twitter Account Connected!</h1>
+            <p>
+              Your Twitter account @${result.twitterUser.username} has been successfully connected to your Telegram account.
+              You can now participate in Twitter raids and earn rewards!
+            </p>
+            <a href="https://t.me/${botUsername}" class="button">Return to Bot</a>
+          </div>
+        </body>
+      </html>
+    `;
+    
+    res.send(html);
+  } catch (error) {
+    logger.error(`Error in Twitter callback: ${error.message}`);
+    res.status(500).send(`Authentication failed: ${error.message}`);
   }
 };
 
@@ -429,42 +636,6 @@ module.exports = {
   hasUserLikedTweet,
   hasUserRetweetedTweet,
   getUserRepliesToTweet,
-  extractTweetId
-};
-
-/**
- * Express route handler for Twitter OAuth2 callback
- * @param {import('express').Request} req
- * @param {import('express').Response} res
- */
-module.exports.expressCallback = async (req, res) => {
-  try {
-    const { code, state } = req.query;
-    if (!code || !state) {
-      return res.status(400).send('Missing required parameters');
-    }
-    const result = await module.exports.handleTwitterCallback(code, state);
-    if (!result) {
-      return res.status(400).send('Authentication failed');
-    }
-    const user = await require('./userService').getUserById(result.telegramId);
-    if (!user) {
-      return res.status(404).send('User not found');
-    }
-    const botUsername = process.env.BOT_USERNAME;
-    const html = `
-      <!DOCTYPE html>
-      <html>
-        <head><title>Twitter Account Connected</title></head>
-        <body style="font-family:Arial,sans-serif;text-align:center;padding:20px;">
-          <h1>✔ Twitter Account Connected!</h1>
-          <p>Your Twitter @${result.twitterUser.username} is now linked.</p>
-          <a href="https://t.me/${botUsername}" style="display:inline-block;padding:12px 24px;background:#1d9bf0;color:#fff;border-radius:4px;text-decoration:none;">Return to Bot</a>
-        </body>
-      </html>`;
-    res.send(html);
-  } catch (error) {
-    console.error('Error in expressCallback:', error);
-    res.status(500).send('Authentication failed: ' + error.message);
-  }
+  extractTweetId,
+  expressCallback
 };

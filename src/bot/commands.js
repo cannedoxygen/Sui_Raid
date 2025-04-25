@@ -20,32 +20,53 @@ const initializeCommands = (botInstance) => {
   // Store bot reference
   bot = botInstance;
   
-  // Register commands with Telegram (shows in menu)
-  bot.setMyCommands([
-    { command: 'start', description: 'Start the bot and get an introduction' },
-    { command: 'help', description: 'Get help and list of available commands' },
-    { command: 'login', description: 'Connect your Twitter account' },
-    { command: 'wallet', description: 'Set up or view your Sui wallet' },
-    { command: 'myxp', description: 'Check your XP and rewards' },
-    { command: 'leaderboard', description: 'View XP leaderboard' }
-  ]);
+  try {
+    // Register commands with Telegram (shows in menu)
+    bot.setMyCommands([
+      { command: 'start', description: 'Start the bot and get an introduction' },
+      { command: 'help', description: 'Get help and list of available commands' },
+      { command: 'login', description: 'Connect your Twitter account' },
+      { command: 'wallet', description: 'Set up or view your Sui wallet' },
+      { command: 'myxp', description: 'Check your XP and rewards' },
+      { command: 'leaderboard', description: 'View XP leaderboard' }
+    ]).then(() => {
+      logger.info('Bot commands registered with Telegram API');
+    }).catch(err => {
+      logger.error(`Failed to register commands with Telegram: ${err.message}`);
+    });
 
-  // User commands
-  bot.onText(/\/start/, handleStartCommand);
-  bot.onText(/\/help/, handleHelpCommand);
-  bot.onText(/\/login/, handleLoginCommand);
-  bot.onText(/\/wallet/, handleWalletCommand);
-  bot.onText(/\/myxp/, handleMyXpCommand);
-  bot.onText(/\/leaderboard/, handleLeaderboardCommand);
-  
-  // Admin commands
-  bot.onText(/\/dropraid/, handleDropRaidCommand);
-  bot.onText(/\/endraid/, handleEndRaidCommand);
-  bot.onText(/\/setrules/, handleSetRulesCommand);
-  bot.onText(/\/blacklist/, handleBlacklistCommand);
-  bot.onText(/\/whitelist/, handleWhitelistCommand);
-  
-  logger.info('Bot commands registered successfully');
+    // Force re-bind of event handlers to ensure they're properly attached
+    bot.removeTextListener(/\/start/);
+    bot.removeTextListener(/\/help/);
+    bot.removeTextListener(/\/login/);
+    bot.removeTextListener(/\/wallet/);
+    bot.removeTextListener(/\/myxp/);
+    bot.removeTextListener(/\/leaderboard/);
+    bot.removeTextListener(/\/dropraid/);
+    bot.removeTextListener(/\/endraid/);
+    bot.removeTextListener(/\/setrules/);
+    bot.removeTextListener(/\/blacklist/);
+    bot.removeTextListener(/\/whitelist/);
+
+    // User commands - now with more specific regex to match only the exact command
+    bot.onText(/^\/start(@\w+)?$/, handleStartCommand);
+    bot.onText(/^\/help(@\w+)?$/, handleHelpCommand);
+    bot.onText(/^\/login(@\w+)?$/, handleLoginCommand);
+    bot.onText(/^\/wallet(@\w+)?$/, handleWalletCommand);
+    bot.onText(/^\/myxp(@\w+)?$/, handleMyXpCommand);
+    bot.onText(/^\/leaderboard(@\w+)?$/, handleLeaderboardCommand);
+    
+    // Admin commands
+    bot.onText(/^\/dropraid(@\w+)?(\s+.*)?$/, handleDropRaidCommand);
+    bot.onText(/^\/endraid(@\w+)?(\s+.*)?$/, handleEndRaidCommand);
+    bot.onText(/^\/setrules(@\w+)?(\s+.*)?$/, handleSetRulesCommand);
+    bot.onText(/^\/blacklist(@\w+)?(\s+.*)?$/, handleBlacklistCommand);
+    bot.onText(/^\/whitelist(@\w+)?(\s+.*)?$/, handleWhitelistCommand);
+    
+    logger.info('Bot commands registered successfully');
+  } catch (error) {
+    logger.error(`Error initializing commands: ${error.message}`);
+  }
 };
 
 /**
@@ -56,6 +77,8 @@ const handleStartCommand = async (msg) => {
   try {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
+    
+    logger.info(`/start command received from user ${userId} in chat ${chatId}`);
     
     // Create user if first time
     await createUserIfNotExists({
@@ -78,12 +101,13 @@ const handleStartCommand = async (msg) => {
       `Type /help to see all available commands.`;
     
     await bot.sendMessage(chatId, welcomeMessage, { parse_mode: 'Markdown' });
+    logger.info(`Welcome message sent to user ${userId}`);
   } catch (error) {
-    logger.error('Error in start command:', error.message);
+    logger.error(`Error in start command from user ${msg.from.id}: ${error.message}`);
     try {
       await bot.sendMessage(msg.chat.id, 'Sorry, there was an error. Please try again later.');
     } catch (msgError) {
-      logger.error('Error sending error message:', msgError.message);
+      logger.error(`Error sending error message: ${msgError.message}`);
     }
   }
 };
@@ -147,6 +171,8 @@ const handleLoginCommand = async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
     
+    logger.info(`/login command received from user ${userId}`);
+    
     // Generate Twitter auth URL
     const authUrl = await generateTwitterAuthUrl(userId);
     
@@ -167,6 +193,8 @@ const handleLoginCommand = async (msg) => {
         ]
       }
     });
+    
+    logger.info(`Twitter auth URL sent to user ${userId}`);
   } catch (error) {
     logger.error(`Error in login command: ${error.message}`);
     try {
@@ -185,6 +213,8 @@ const handleWalletCommand = async (msg) => {
   try {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
+    
+    logger.info(`/wallet command received from user ${userId}`);
     
     // Get user info
     const user = await getUserById(userId);
@@ -269,6 +299,8 @@ const handleMyXpCommand = async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
     
+    logger.info(`/myxp command received from user ${userId}`);
+    
     // Get user info
     const user = await getUserById(userId);
     
@@ -278,6 +310,11 @@ const handleMyXpCommand = async (msg) => {
     
     // Get ongoing campaign if any
     const supabase = getSupabase();
+    
+    if (!supabase) {
+      return bot.sendMessage(chatId, 'Unable to connect to database. Please try again later.');
+    }
+    
     const { data: activeCampaign, error } = await supabase
       .from('campaigns')
       .select('*')
@@ -343,9 +380,17 @@ const handleMyXpCommand = async (msg) => {
 const handleLeaderboardCommand = async (msg) => {
   try {
     const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    
+    logger.info(`/leaderboard command received from user ${userId}`);
     
     // Get active campaign for this chat if any
     const supabase = getSupabase();
+    
+    if (!supabase) {
+      return bot.sendMessage(chatId, 'Unable to connect to database. Please try again later.');
+    }
+    
     const { data: activeCampaign, error: campaignError } = await supabase
       .from('campaigns')
       .select('*')
@@ -446,6 +491,8 @@ const handleDropRaidCommand = async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
     
+    logger.info(`/dropraid command received from user ${userId} in chat ${chatId}`);
+    
     // Check if user is admin
     const isAdmin = await isUserAdminInGroup(userId, chatId);
     
@@ -527,6 +574,8 @@ const handleEndRaidCommand = async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
     
+    logger.info(`/endraid command received from user ${userId} in chat ${chatId}`);
+    
     // Check if user is admin
     const isAdmin = await isUserAdminInGroup(userId, chatId);
     
@@ -536,6 +585,11 @@ const handleEndRaidCommand = async (msg) => {
     
     // Get active raid for this chat
     const supabase = getSupabase();
+    
+    if (!supabase) {
+      return bot.sendMessage(chatId, 'Unable to connect to database. Please try again later.');
+    }
+    
     const { data: activeRaid, error } = await supabase
       .from('raids')
       .select('*')
@@ -574,6 +628,9 @@ const handleEndRaidCommand = async (msg) => {
  */
 const handleSetRulesCommand = async (msg) => {
   try {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    logger.info(`/setrules command received from user ${userId} in chat ${chatId}`);
     await bot.sendMessage(msg.chat.id, '⚙️ This command will be implemented in a future update.');
   } catch (error) {
     logger.error('Error in setrules command:', error.message);
@@ -582,6 +639,9 @@ const handleSetRulesCommand = async (msg) => {
 
 const handleBlacklistCommand = async (msg) => {
   try {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    logger.info(`/blacklist command received from user ${userId} in chat ${chatId}`);
     await bot.sendMessage(msg.chat.id, '⚙️ This command will be implemented in a future update.');
   } catch (error) {
     logger.error('Error in blacklist command:', error.message);
@@ -590,6 +650,9 @@ const handleBlacklistCommand = async (msg) => {
 
 const handleWhitelistCommand = async (msg) => {
   try {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    logger.info(`/whitelist command received from user ${userId} in chat ${chatId}`);
     await bot.sendMessage(msg.chat.id, '⚙️ This command will be implemented in a future update.');
   } catch (error) {
     logger.error('Error in whitelist command:', error.message);

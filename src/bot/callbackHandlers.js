@@ -8,6 +8,7 @@ const { Raid } = require('../models/raidModel');
 const { Campaign } = require('../models/campaignModel');
 const User = require('../models/userModel');
 const raidService = require('../services/raidService');
+const suiService = require('../services/suiService');
 const helpers = require('../utils/helpers');
 
 /**
@@ -20,10 +21,17 @@ const setupCallbackHandlers = (bot) => {
       const { id, data, message, from } = query;
       
       // Always acknowledge the callback to remove loading state
-      await bot.answerCallbackQuery(id);
+      try {
+        await bot.answerCallbackQuery(id);
+      } catch (ackError) {
+        logger.error(`Error acknowledging callback query: ${ackError.message}`);
+      }
       
       // Parse callback data
-      if (!data) return;
+      if (!data) {
+        logger.warn(`Empty callback data received from user ${from.id}`);
+        return;
+      }
       
       logger.debug(`Callback query received: ${data} from user ${from.id}`);
       
@@ -42,17 +50,20 @@ const setupCallbackHandlers = (bot) => {
         await handleRaidModeCallback(bot, query);
       } else if (data.startsWith('token_type_')) {
         await handleTokenTypeCallback(bot, query);
+      } else if (data.startsWith('reward_model_')) {
+        await handleRewardModelCallback(bot, query);
+      } else {
+        logger.warn(`Unknown callback type: ${data.split('_')[0]} from user ${from.id}`);
       }
-      
     } catch (error) {
-      logger.error('Error handling callback query:', error.message);
+      logger.error(`Error handling callback query: ${error.message}`, error);
       
       // Notify user of error
       try {
         await bot.sendMessage(query.from.id, 
           '❌ An error occurred while processing your request. Please try again later.');
-      } catch (err) {
-        logger.error('Error sending error message:', err.message);
+      } catch (msgError) {
+        logger.error(`Error sending error message: ${msgError.message}`);
       }
     }
   });
@@ -69,6 +80,8 @@ const handleVerifyCallback = async (bot, query) => {
   const { data, from, message } = query;
   const raidId = parseInt(data.split('_')[1]);
   
+  logger.info(`User ${from.id} is verifying actions for raid ${raidId}`);
+  
   // Send "processing" message
   const processingMsg = await bot.sendMessage(from.id, 
     '⏳ Verifying your Twitter actions... Please wait.');
@@ -78,17 +91,23 @@ const handleVerifyCallback = async (bot, query) => {
     const verificationResult = await raidService.verifyUserActions(raidId, from.id);
     
     // Delete processing message
-    await bot.deleteMessage(from.id, processingMsg.message_id);
+    try {
+      await bot.deleteMessage(from.id, processingMsg.message_id);
+    } catch (delError) {
+      logger.warn(`Could not delete processing message: ${delError.message}`);
+    }
     
     if (!verificationResult.success) {
       if (verificationResult.needsTwitter) {
         // User needs to connect Twitter first
+        logger.info(`User ${from.id} needs to connect Twitter account first`);
         return await bot.sendMessage(from.id,
           '❌ *Twitter account not connected*\n\n' +
           'You need to connect your Twitter account first using /login',
           { parse_mode: 'Markdown' });
       }
       
+      logger.warn(`Verification failed for user ${from.id}: ${verificationResult.error}`);
       return await bot.sendMessage(from.id, 
         `❌ *Verification failed*\n\n${verificationResult.error}`,
         { parse_mode: 'Markdown' });
@@ -98,13 +117,13 @@ const handleVerifyCallback = async (bot, query) => {
     let message = '✅ *Actions Verified*\n\n';
     let totalXp = 0;
     
-    if (verificationResult.results.actions.length === 0) {
+    if (!verificationResult.results || !verificationResult.results.actions || verificationResult.results.actions.length === 0) {
       message += 'No Twitter actions were detected for this raid. Make sure you have engaged with the tweet.\n\n';
     } else {
       message += '*Actions detected:*\n';
       
       verificationResult.results.actions.forEach(action => {
-        totalXp += action.xp;
+        totalXp += action.xp || 0;
         
         switch (action.type) {
           case 'like':
@@ -120,6 +139,11 @@ const handleVerifyCallback = async (bot, query) => {
             }
             message += `💬 ${commentType} (+${action.xp} XP)\n`;
             break;
+          case 'bookmark':
+            message += `🔖 Bookmark (+${action.xp} XP)\n`;
+            break;
+          default:
+            message += `${action.type} (+${action.xp} XP)\n`;
         }
       });
       
@@ -127,35 +151,49 @@ const handleVerifyCallback = async (bot, query) => {
     }
     
     // Add suggestions for undetected actions
-    if (!verificationResult.results.like || !verificationResult.results.retweet) {
+    const hasLike = verificationResult.results?.actions?.some(a => a.type === 'like');
+    const hasRetweet = verificationResult.results?.actions?.some(a => a.type === 'retweet');
+    const hasComment = verificationResult.results?.actions?.some(a => a.type === 'comment');
+    
+    if (!hasLike || !hasRetweet || !hasComment) {
       message += '\n*Suggestions:*\n';
       
-      if (!verificationResult.results.like) {
+      if (!hasLike) {
         message += '• Like the tweet for additional XP\n';
       }
       
-      if (!verificationResult.results.retweet) {
+      if (!hasRetweet) {
         message += '• Retweet for additional XP\n';
       }
       
-      if (!verificationResult.results.comment) {
+      if (!hasComment) {
         message += '• Add a comment for additional XP\n';
       }
     }
     
     // Send verification results
     await bot.sendMessage(from.id, message, { parse_mode: 'Markdown' });
+    logger.info(`Verification results sent to user ${from.id} for raid ${raidId}`);
     
     // Update raid stats in the group
-    const raid = await Raid.findById(raidId);
-    if (raid && raid.isActive) {
-      await raidService.updateRaidStatusMessage(raidId, bot);
+    try {
+      const raid = await Raid.findById(raidId);
+      if (raid && raid.isActive) {
+        await raidService.updateRaidStatusMessage(raidId, bot);
+        logger.debug(`Raid stats updated for raid ${raidId}`);
+      }
+    } catch (updateError) {
+      logger.error(`Error updating raid stats: ${updateError.message}`);
     }
   } catch (error) {
-    // Delete processing message
-    await bot.deleteMessage(from.id, processingMsg.message_id);
+    // Delete processing message if it exists
+    try {
+      await bot.deleteMessage(from.id, processingMsg.message_id);
+    } catch (delError) {
+      // Ignore error if message already deleted
+    }
     
-    logger.error('Error verifying actions:', error.message);
+    logger.error(`Error verifying actions for user ${from.id}: ${error.message}`);
     await bot.sendMessage(from.id, 
       '❌ *Verification failed*\n\nAn error occurred while verifying your actions. Please try again later.',
       { parse_mode: 'Markdown' });
@@ -171,14 +209,23 @@ const handleStatsCallback = async (bot, query) => {
   const { data, from, message } = query;
   const parts = data.split('_');
   
+  logger.info(`User ${from.id} requesting stats for ${parts[1]} ${parts[2] || ''}`);
+  
   try {
     // Check if raid or campaign stats
     if (parts[1] === 'campaign') {
       // Campaign stats
       const campaignId = parseInt(parts[2]);
+      
+      if (!campaignId) {
+        logger.warn(`Invalid campaign ID in stats request from user ${from.id}`);
+        return await bot.sendMessage(from.id, 'Invalid campaign ID. Please try again.');
+      }
+      
       const campaign = await Campaign.findById(campaignId);
       
       if (!campaign) {
+        logger.warn(`Campaign ${campaignId} not found for stats request from user ${from.id}`);
         return await bot.sendMessage(from.id, 
           '❌ Campaign not found or has been deleted.', 
           { parse_mode: 'Markdown' });
@@ -220,14 +267,22 @@ const handleStatsCallback = async (bot, query) => {
       
       // Send message
       await bot.sendMessage(from.id, messageText, { parse_mode: 'Markdown' });
+      logger.info(`Campaign stats sent to user ${from.id} for campaign ${campaignId}`);
+      
     } else {
       // Raid stats
       const raidId = parseInt(parts[1]);
+      
+      if (!raidId) {
+        logger.warn(`Invalid raid ID in stats request from user ${from.id}`);
+        return await bot.sendMessage(from.id, 'Invalid raid ID. Please try again.');
+      }
       
       // Get raid statistics
       const stats = await raidService.getRaidStatistics(raidId);
       
       if (!stats) {
+        logger.warn(`Raid ${raidId} not found for stats request from user ${from.id}`);
         return await bot.sendMessage(from.id, 
           '❌ Raid not found or has been deleted.', 
           { parse_mode: 'Markdown' });
@@ -241,7 +296,7 @@ const handleStatsCallback = async (bot, query) => {
       messageText += `👍 ${stats.actionCounts.like} Likes\n`;
       messageText += `🔄 ${stats.actionCounts.retweet} Retweets\n`;
       messageText += `💬 ${stats.actionCounts.comment} Comments\n`;
-      messageText += `📌 ${stats.actionCounts.bookmark} Bookmarks\n\n`;
+      messageText += `📌 ${stats.actionCounts.bookmark || 0} Bookmarks\n\n`;
       
       // Overall stats
       messageText += `👥 *Participants:* ${stats.participants}\n`;
@@ -281,9 +336,10 @@ const handleStatsCallback = async (bot, query) => {
           ]
         }
       });
+      logger.info(`Raid stats sent to user ${from.id} for raid ${raidId}`);
     }
   } catch (error) {
-    logger.error('Error handling stats callback:', error.message);
+    logger.error(`Error handling stats callback for user ${from.id}: ${error.message}`, error);
     await bot.sendMessage(from.id, 
       '❌ An error occurred while retrieving statistics. Please try again later.',
       { parse_mode: 'Markdown' });
@@ -299,14 +355,23 @@ const handleLeaderboardCallback = async (bot, query) => {
   const { data, from, message } = query;
   const parts = data.split('_');
   
+  logger.info(`User ${from.id} requesting leaderboard for ${parts[1]} ${parts[2] || ''}`);
+  
   try {
     // Check if raid or campaign leaderboard
     if (parts[1] === 'raid') {
       // Raid leaderboard
       const raidId = parseInt(parts[2]);
+      
+      if (!raidId) {
+        logger.warn(`Invalid raid ID in leaderboard request from user ${from.id}`);
+        return await bot.sendMessage(from.id, 'Invalid raid ID. Please try again.');
+      }
+      
       const raid = await Raid.findById(raidId);
       
       if (!raid) {
+        logger.warn(`Raid ${raidId} not found for leaderboard request from user ${from.id}`);
         return await bot.sendMessage(from.id, 
           '❌ Raid not found or has been deleted.', 
           { parse_mode: 'Markdown' });
@@ -357,12 +422,21 @@ const handleLeaderboardCallback = async (bot, query) => {
       
       // Send message
       await bot.sendMessage(from.id, messageText, { parse_mode: 'Markdown' });
+      logger.info(`Raid leaderboard sent to user ${from.id} for raid ${raidId}`);
+      
     } else if (parts[1] === 'campaign') {
       // Campaign leaderboard
       const campaignId = parseInt(parts[2]);
+      
+      if (!campaignId) {
+        logger.warn(`Invalid campaign ID in leaderboard request from user ${from.id}`);
+        return await bot.sendMessage(from.id, 'Invalid campaign ID. Please try again.');
+      }
+      
       const campaign = await Campaign.findById(campaignId);
       
       if (!campaign) {
+        logger.warn(`Campaign ${campaignId} not found for leaderboard request from user ${from.id}`);
         return await bot.sendMessage(from.id, 
           '❌ Campaign not found or has been deleted.', 
           { parse_mode: 'Markdown' });
@@ -419,7 +493,9 @@ const handleLeaderboardCallback = async (bot, query) => {
       
       // Send message
       await bot.sendMessage(from.id, messageText, { parse_mode: 'Markdown' });
-    } else {
+      logger.info(`Campaign leaderboard sent to user ${from.id} for campaign ${campaignId}`);
+      
+    } else if (parts[1] === 'alltime') {
       // All-time leaderboard
       const leaderboard = await User.getTopByXp(10);
       
@@ -458,9 +534,12 @@ const handleLeaderboardCallback = async (bot, query) => {
       
       // Send message
       await bot.sendMessage(from.id, messageText, { parse_mode: 'Markdown' });
+      logger.info(`All-time leaderboard sent to user ${from.id}`);
+    } else {
+      logger.warn(`Unknown leaderboard type: ${parts[1]} from user ${from.id}`);
     }
   } catch (error) {
-    logger.error('Error handling leaderboard callback:', error.message);
+    logger.error(`Error handling leaderboard callback for user ${from.id}: ${error.message}`, error);
     await bot.sendMessage(from.id, 
       '❌ An error occurred while retrieving the leaderboard. Please try again later.',
       { parse_mode: 'Markdown' });
@@ -476,11 +555,14 @@ const handleClaimCallback = async (bot, query) => {
   const { data, from, message } = query;
   const parts = data.split('_');
   
+  logger.info(`User ${from.id} claiming rewards for ${parts[1]} ${parts[2] || ''}`);
+  
   try {
     // Check if user has connected wallet
     const user = await User.findByTelegramId(from.id);
     
     if (!user || !user.hasSuiWalletConnected()) {
+      logger.warn(`User ${from.id} attempted to claim without connected wallet`);
       return await bot.sendMessage(from.id, 
         '❌ *Wallet Not Connected*\n\n' +
         'You need to connect a Sui wallet first to claim rewards.\n' +
@@ -492,9 +574,16 @@ const handleClaimCallback = async (bot, query) => {
     if (parts[1] === 'raid') {
       // Raid claim
       const raidId = parseInt(parts[2]);
+      
+      if (!raidId) {
+        logger.warn(`Invalid raid ID in claim request from user ${from.id}`);
+        return await bot.sendMessage(from.id, 'Invalid raid ID. Please try again.');
+      }
+      
       const raid = await Raid.findById(raidId);
       
       if (!raid) {
+        logger.warn(`Raid ${raidId} not found for claim request from user ${from.id}`);
         return await bot.sendMessage(from.id, 
           '❌ Raid not found or has been deleted.', 
           { parse_mode: 'Markdown' });
@@ -504,6 +593,7 @@ const handleClaimCallback = async (bot, query) => {
       const reward = await raid.calculateUserReward(from.id);
       
       if (!reward.eligible) {
+        logger.warn(`User ${from.id} not eligible for reward: ${reward.reason}`);
         return await bot.sendMessage(from.id, 
           `❌ *Not Eligible for Reward*\n\n${reward.reason}`, 
           { parse_mode: 'Markdown' });
@@ -511,6 +601,7 @@ const handleClaimCallback = async (bot, query) => {
       
       // Check if raid is part of a campaign
       if (raid.campaignId) {
+        logger.info(`User ${from.id} attempted to claim for raid ${raidId} which is part of campaign ${raid.campaignId}`);
         return await bot.sendMessage(from.id, 
           '⚠️ This raid is part of a campaign. Rewards will be distributed at the end of the campaign.', 
           { parse_mode: 'Markdown' });
@@ -518,6 +609,7 @@ const handleClaimCallback = async (bot, query) => {
       
       // Check if rewards have been distributed
       if (raid.rewardsDistributed) {
+        logger.info(`User ${from.id} attempted to claim already distributed rewards for raid ${raidId}`);
         return await bot.sendMessage(from.id, 
           '✅ Rewards for this raid have already been distributed. Please check your wallet.', 
           { parse_mode: 'Markdown' });
@@ -532,9 +624,14 @@ const handleClaimCallback = async (bot, query) => {
         const result = await raidService.distributeReward(raid, from.id, user.suiWalletAddress);
         
         // Delete processing message
-        await bot.deleteMessage(from.id, processingMsg.message_id);
+        try {
+          await bot.deleteMessage(from.id, processingMsg.message_id);
+        } catch (delError) {
+          logger.warn(`Could not delete processing message: ${delError.message}`);
+        }
         
         if (!result.success) {
+          logger.error(`Failed to claim reward for user ${from.id}: ${result.error}`);
           return await bot.sendMessage(from.id, 
             `❌ *Claim Failed*\n\n${result.error}`, 
             { parse_mode: 'Markdown' });
@@ -548,11 +645,17 @@ const handleClaimCallback = async (bot, query) => {
           `The tokens have been sent to your wallet:\n` +
           `\`${helpers.maskSensitiveString(user.suiWalletAddress, 6)}\``,
           { parse_mode: 'Markdown' });
+        
+        logger.info(`User ${from.id} successfully claimed ${result.amount} ${raid.tokenSymbol} for raid ${raidId}`);
       } catch (error) {
         // Delete processing message
-        await bot.deleteMessage(from.id, processingMsg.message_id);
+        try {
+          await bot.deleteMessage(from.id, processingMsg.message_id);
+        } catch (delError) {
+          // Ignore errors if message already deleted
+        }
         
-        logger.error('Error claiming reward:', error.message);
+        logger.error(`Error claiming reward for user ${from.id}: ${error.message}`);
         await bot.sendMessage(from.id, 
           '❌ An error occurred while processing your claim. Please try again later.',
           { parse_mode: 'Markdown' });
@@ -560,9 +663,16 @@ const handleClaimCallback = async (bot, query) => {
     } else if (parts[1] === 'campaign') {
       // Campaign claim
       const campaignId = parseInt(parts[2]);
+      
+      if (!campaignId) {
+        logger.warn(`Invalid campaign ID in claim request from user ${from.id}`);
+        return await bot.sendMessage(from.id, 'Invalid campaign ID. Please try again.');
+      }
+      
       const campaign = await Campaign.findById(campaignId);
       
       if (!campaign) {
+        logger.warn(`Campaign ${campaignId} not found for claim request from user ${from.id}`);
         return await bot.sendMessage(from.id, 
           '❌ Campaign not found or has been deleted.', 
           { parse_mode: 'Markdown' });
@@ -572,6 +682,7 @@ const handleClaimCallback = async (bot, query) => {
       const reward = await campaign.calculateUserReward(from.id);
       
       if (!reward.eligible) {
+        logger.warn(`User ${from.id} not eligible for campaign reward: ${reward.reason}`);
         return await bot.sendMessage(from.id, 
           `❌ *Not Eligible for Reward*\n\n${reward.reason}`, 
           { parse_mode: 'Markdown' });
@@ -579,6 +690,7 @@ const handleClaimCallback = async (bot, query) => {
       
       // Check if campaign is active
       if (campaign.isActive) {
+        logger.info(`User ${from.id} attempted to claim from active campaign ${campaignId}`);
         return await bot.sendMessage(from.id, 
           '⚠️ This campaign is still active. Rewards will be distributed after the campaign ends.', 
           { parse_mode: 'Markdown' });
@@ -586,6 +698,7 @@ const handleClaimCallback = async (bot, query) => {
       
       // Check if rewards have been distributed
       if (campaign.rewardsDistributed) {
+        logger.info(`User ${from.id} attempted to claim already distributed rewards for campaign ${campaignId}`);
         return await bot.sendMessage(from.id, 
           '✅ Rewards for this campaign have already been distributed. Please check your wallet.', 
           { parse_mode: 'Markdown' });
@@ -600,9 +713,14 @@ const handleClaimCallback = async (bot, query) => {
         const result = await raidService.distributeCampaignReward(campaign, from.id, user.suiWalletAddress);
         
         // Delete processing message
-        await bot.deleteMessage(from.id, processingMsg.message_id);
+        try {
+          await bot.deleteMessage(from.id, processingMsg.message_id);
+        } catch (delError) {
+          logger.warn(`Could not delete processing message: ${delError.message}`);
+        }
         
         if (!result.success) {
+          logger.error(`Failed to claim campaign reward for user ${from.id}: ${result.error}`);
           return await bot.sendMessage(from.id, 
             `❌ *Claim Failed*\n\n${result.error}`, 
             { parse_mode: 'Markdown' });
@@ -616,18 +734,26 @@ const handleClaimCallback = async (bot, query) => {
           `The tokens have been sent to your wallet:\n` +
           `\`${helpers.maskSensitiveString(user.suiWalletAddress, 6)}\``,
           { parse_mode: 'Markdown' });
+        
+        logger.info(`User ${from.id} successfully claimed ${result.amount} ${campaign.tokenSymbol} for campaign ${campaignId}`);
       } catch (error) {
         // Delete processing message
-        await bot.deleteMessage(from.id, processingMsg.message_id);
+        try {
+          await bot.deleteMessage(from.id, processingMsg.message_id);
+        } catch (delError) {
+          // Ignore errors if message already deleted
+        }
         
-        logger.error('Error claiming campaign reward:', error.message);
+        logger.error(`Error claiming campaign reward for user ${from.id}: ${error.message}`);
         await bot.sendMessage(from.id, 
           '❌ An error occurred while processing your claim. Please try again later.',
           { parse_mode: 'Markdown' });
       }
+    } else {
+      logger.warn(`Unknown claim type: ${parts[1]} from user ${from.id}`);
     }
   } catch (error) {
-    logger.error('Error handling claim callback:', error.message);
+    logger.error(`Error handling claim callback for user ${from.id}: ${error.message}`, error);
     await bot.sendMessage(from.id, 
       '❌ An error occurred while processing your claim. Please try again later.',
       { parse_mode: 'Markdown' });
@@ -643,11 +769,14 @@ const handleWalletCallback = async (bot, query) => {
   const { data, from, message } = query;
   const action = data.split('_')[1];
   
+  logger.info(`User ${from.id} using wallet action: ${action}`);
+  
   try {
     // Get user
     const user = await User.findByTelegramId(from.id);
     
     if (!user) {
+      logger.warn(`User ${from.id} not found for wallet action`);
       return await bot.sendMessage(from.id, 
         '❌ User not found. Please use /start to set up your account.',
         { parse_mode: 'Markdown' });
@@ -663,6 +792,8 @@ const handleWalletCallback = async (bot, query) => {
       // Set user state to wait for wallet address
       // This requires state management which we'll need to handle in commands.js
       // For now we'll just show how to handle the input
+      
+      logger.info(`Prompted user ${from.id} to enter wallet address`);
     } else if (action === 'generate') {
       // Send processing message
       const processingMsg = await bot.sendMessage(from.id, 
@@ -670,14 +801,17 @@ const handleWalletCallback = async (bot, query) => {
       
       try {
         // Generate new wallet
-        const { suiService } = require('../services/suiService');
         const wallet = await suiService.generateSuiWallet();
         
         // Connect wallet to user
         await user.connectSuiWallet(wallet.address, true);
         
         // Delete processing message
-        await bot.deleteMessage(from.id, processingMsg.message_id);
+        try {
+          await bot.deleteMessage(from.id, processingMsg.message_id);
+        } catch (delError) {
+          logger.warn(`Could not delete processing message: ${delError.message}`);
+        }
         
         // Send success message with warning to save private key
         await bot.sendMessage(from.id, 
@@ -687,11 +821,17 @@ const handleWalletCallback = async (bot, query) => {
           `Private Key: \`${wallet.privateKey}\`\n\n` +
           `⚠️ This is the only time you'll see this private key. It gives full access to your wallet. Save it securely and never share it with anyone!`,
           { parse_mode: 'Markdown' });
+        
+        logger.info(`Generated new wallet for user ${from.id}: ${wallet.address}`);
       } catch (error) {
         // Delete processing message
-        await bot.deleteMessage(from.id, processingMsg.message_id);
+        try {
+          await bot.deleteMessage(from.id, processingMsg.message_id);
+        } catch (delError) {
+          // Ignore errors if message already deleted
+        }
         
-        logger.error('Error generating wallet:', error.message);
+        logger.error(`Error generating wallet for user ${from.id}: ${error.message}`);
         await bot.sendMessage(from.id, 
           '❌ An error occurred while generating your wallet. Please try again later.',
           { parse_mode: 'Markdown' });
@@ -705,9 +845,13 @@ const handleWalletCallback = async (bot, query) => {
       
       // Set user state to wait for new wallet address
       // This requires state management which we'll handle in commands.js
+      
+      logger.info(`Prompted user ${from.id} to update wallet address`);
+    } else {
+      logger.warn(`Unknown wallet action: ${action} from user ${from.id}`);
     }
   } catch (error) {
-    logger.error('Error handling wallet callback:', error.message);
+    logger.error(`Error handling wallet callback for user ${from.id}: ${error.message}`, error);
     await bot.sendMessage(from.id, 
       '❌ An error occurred. Please try again later.',
       { parse_mode: 'Markdown' });
@@ -723,9 +867,12 @@ const handleRaidModeCallback = async (bot, query) => {
   const { data, from, message } = query;
   const mode = data.split('_')[2]; // single or campaign
   
+  logger.info(`User ${from.id} selected raid mode: ${mode}`);
+  
   try {
     // Get temporary raid configuration
     if (!global.tempRaidConfig || !global.tempRaidConfig[message.chat.id]) {
+      logger.warn(`No temporary raid config found for chat ${message.chat.id}`);
       return await bot.sendMessage(from.id, 
         '❌ Raid configuration not found. Please start again with /dropraid.',
         { parse_mode: 'Markdown' });
@@ -735,6 +882,7 @@ const handleRaidModeCallback = async (bot, query) => {
     
     // Check if user is the admin who initiated the configuration
     if (raidConfig.adminId !== from.id) {
+      logger.warn(`User ${from.id} attempted to modify raid config started by user ${raidConfig.adminId}`);
       return await bot.answerCallbackQuery(query.id, {
         text: 'Only the admin who started this configuration can set options.',
         show_alert: true
@@ -768,8 +916,10 @@ const handleRaidModeCallback = async (bot, query) => {
         ]
       }
     });
+    
+    logger.info(`Updated raid config for chat ${message.chat.id} with mode: ${mode}`);
   } catch (error) {
-    logger.error('Error handling raid mode callback:', error.message);
+    logger.error(`Error handling raid mode callback for user ${from.id}: ${error.message}`, error);
     await bot.sendMessage(from.id, 
       '❌ An error occurred. Please try again later.',
       { parse_mode: 'Markdown' });
@@ -785,9 +935,12 @@ const handleTokenTypeCallback = async (bot, query) => {
   const { data, from, message } = query;
   const tokenType = data.split('_')[2]; // sui or custom
   
+  logger.info(`User ${from.id} selected token type: ${tokenType}`);
+  
   try {
     // Get temporary raid configuration
     if (!global.tempRaidConfig || !global.tempRaidConfig[message.chat.id]) {
+      logger.warn(`No temporary raid config found for chat ${message.chat.id}`);
       return await bot.sendMessage(from.id, 
         '❌ Raid configuration not found. Please start again with /dropraid.',
         { parse_mode: 'Markdown' });
@@ -797,6 +950,7 @@ const handleTokenTypeCallback = async (bot, query) => {
     
     // Check if user is the admin who initiated the configuration
     if (raidConfig.adminId !== from.id) {
+      logger.warn(`User ${from.id} attempted to modify raid config started by user ${raidConfig.adminId}`);
       return await bot.answerCallbackQuery(query.id, {
         text: 'Only the admin who started this configuration can set options.',
         show_alert: true
@@ -827,6 +981,8 @@ const handleTokenTypeCallback = async (bot, query) => {
           ]
         }
       });
+      
+      logger.info(`Updated raid config for chat ${message.chat.id} with SUI token`);
     } else {
       // Ask for custom token details
       raidConfig.stage = 'custom_token';
@@ -845,11 +1001,85 @@ const handleTokenTypeCallback = async (bot, query) => {
         }
       );
       
-      // Now we need to wait for text input, which should be handled in commands.js
-      // For custom token handling
+      logger.info(`Prompted user ${from.id} to enter custom token details for chat ${message.chat.id}`);
     }
   } catch (error) {
-    logger.error('Error handling token type callback:', error.message);
+    logger.error(`Error handling token type callback for user ${from.id}: ${error.message}`, error);
+    await bot.sendMessage(from.id, 
+      '❌ An error occurred. Please try again later.',
+      { parse_mode: 'Markdown' });
+  }
+};
+
+/**
+ * Handle reward model callback
+ * @param {TelegramBot} bot - Telegram bot instance
+ * @param {Object} query - Callback query
+ */
+const handleRewardModelCallback = async (bot, query) => {
+  const { data, from, message } = query;
+  const model = data.split('_')[2]; // fixed or pool
+  
+  logger.info(`User ${from.id} selected reward model: ${model}`);
+  
+  try {
+    // Get temporary raid configuration
+    if (!global.tempRaidConfig || !global.tempRaidConfig[message.chat.id]) {
+      logger.warn(`No temporary raid config found for chat ${message.chat.id}`);
+      return await bot.sendMessage(from.id, 
+        '❌ Raid configuration not found. Please start again with /dropraid.',
+        { parse_mode: 'Markdown' });
+    }
+    
+    const raidConfig = global.tempRaidConfig[message.chat.id];
+    
+    // Check if user is the admin who initiated the configuration
+    if (raidConfig.adminId !== from.id) {
+      logger.warn(`User ${from.id} attempted to modify raid config started by user ${raidConfig.adminId}`);
+      return await bot.answerCallbackQuery(query.id, {
+        text: 'Only the admin who started this configuration can set options.',
+        show_alert: true
+      });
+    }
+    
+    // Update reward model
+    raidConfig.rewardModel = model;
+    
+    if (model === 'fixed') {
+      raidConfig.stage = 'token_per_xp';
+      
+      // Ask for token per XP rate
+      await bot.editMessageText(
+        '💰 *Token per XP Rate*\n\n' +
+        'How many tokens should users earn per XP point?\n\n' +
+        'Please enter a number (can be a decimal like 0.5):',
+        {
+          chat_id: message.chat.id,
+          message_id: message.message_id,
+          parse_mode: 'Markdown'
+        }
+      );
+      
+      logger.info(`Updated raid config for chat ${message.chat.id} with fixed reward model`);
+    } else {
+      raidConfig.stage = 'total_reward';
+      
+      // Ask for total reward pool
+      await bot.editMessageText(
+        '💰 *Total Reward Pool*\n\n' +
+        'What is the total amount of tokens to distribute?\n\n' +
+        'Please enter a number:',
+        {
+          chat_id: message.chat.id,
+          message_id: message.message_id,
+          parse_mode: 'Markdown'
+        }
+      );
+      
+      logger.info(`Updated raid config for chat ${message.chat.id} with pool reward model`);
+    }
+  } catch (error) {
+    logger.error(`Error handling reward model callback for user ${from.id}: ${error.message}`, error);
     await bot.sendMessage(from.id, 
       '❌ An error occurred. Please try again later.',
       { parse_mode: 'Markdown' });

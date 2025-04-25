@@ -43,22 +43,27 @@ const config = {
     // Port for Express server
     port: parseInt(process.env.PORT || '3000', 10),
     // Enable webhook in production when a valid URL (http/https) is provided
-    webhookEnabled: process.env.NODE_ENV === 'production' && /^https?:\/\//i.test(process.env.WEBHOOK_URL || ''),
+    // Enable webhook in production when a valid URL is provided (ignore accidental leading '=' signs)
+    webhookEnabled: process.env.NODE_ENV === 'production' && (() => {
+      const raw = (process.env.WEBHOOK_URL || '').replace(/^=+/, '');
+      return /^https?:\/\//i.test(raw.trim());
+    })(),
     // Normalize and validate webhook URL (must start with http(s)://); strip trailing slash and any /bot<token> suffix
     webhookUrl: (() => {
-      const raw = process.env.WEBHOOK_URL || '';
-      const trimmed = raw.trim();
+      // Strip any accidental leading '=' signs and whitespace
+      const raw = (process.env.WEBHOOK_URL || '').replace(/^=+/, '').trim();
       // Must be a valid HTTP(S) URL
-      if (!/^https?:\/\//i.test(trimmed)) {
+      if (!/^https?:\/\//i.test(raw)) {
         return '';
       }
-      let u = trimmed.replace(/\/+$/, '');
-      // Remove appended bot token path if present
+      // Remove trailing slashes
+      let url = raw.replace(/\/+$/, '');
+      // If user mistakenly included /bot<token> suffix, strip it
       const suffix = `/bot${process.env.TELEGRAM_BOT_TOKEN}`;
-      if (suffix && u.endsWith(suffix)) {
-        u = u.slice(0, -suffix.length);
+      if (suffix && url.endsWith(suffix)) {
+        url = url.slice(0, -suffix.length);
       }
-      return u;
+      return url;
     })()
   },
   

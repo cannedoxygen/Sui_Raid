@@ -12,6 +12,9 @@ const { getUserById, createUserIfNotExists } = require('../services/userService'
  * @param {TelegramBot} bot - The Telegram bot instance
  */
 const setupMiddleware = (bot) => {
+  // Capture raw messages for debugging
+  bot.on('message', captureRawMessages);
+  
   // Log all incoming messages
   bot.on('message', logIncomingMessage);
   
@@ -24,7 +27,40 @@ const setupMiddleware = (bot) => {
   // Handle callback queries (button clicks)
   bot.on('callback_query', handleCallbackQuery);
   
+  // Add raw message capture for commands
+  bot.on('text', (msg) => {
+    // Extra logging for commands to help with debugging
+    if (msg.text && msg.text.startsWith('/')) {
+      logger.debug(`Command received: ${msg.text} from user ${msg.from?.id} in chat ${msg.chat.id}`);
+    }
+  });
+  
   logger.info('Bot middleware configured successfully');
+};
+
+/**
+ * Capture raw messages for debugging purposes
+ * @param {Object} msg - Telegram message object
+ */
+const captureRawMessages = async (msg) => {
+  try {
+    // Skip non-text messages for simplicity
+    if (!msg.text) return;
+    
+    // Capture all commands for debugging
+    if (msg.text.startsWith('/')) {
+      logger.debug(`COMMAND CAPTURED: ${JSON.stringify({
+        text: msg.text,
+        chat_id: msg.chat.id,
+        chat_type: msg.chat.type,
+        from_id: msg.from?.id,
+        username: msg.from?.username,
+        date: new Date(msg.date * 1000).toISOString()
+      })}`);
+    }
+  } catch (error) {
+    logger.error(`Error capturing raw message: ${error.message}`);
+  }
 };
 
 /**
@@ -32,13 +68,23 @@ const setupMiddleware = (bot) => {
  * @param {Object} msg - Telegram message object
  */
 const logIncomingMessage = async (msg) => {
-  const { id: chatId, type: chatType } = msg.chat;
-  const { id: userId, username } = msg.from || {};
-  
-  logger.debug(
-    `Message received - Chat: ${chatId} (${chatType}), ` +
-    `User: ${userId} ${username ? '(@' + username + ')' : ''}`
-  );
+  try {
+    const { id: chatId, type: chatType } = msg.chat;
+    const { id: userId, username, first_name } = msg.from || {};
+    
+    logger.debug(
+      `Message received - Text: "${msg.text || '[NO TEXT]'}", ` +
+      `Chat: ${chatId} (${chatType}), ` +
+      `User: ${userId} ${username ? '@' + username : first_name || ''}`
+    );
+    
+    // Log entire message in development for debugging
+    if (process.env.NODE_ENV === 'development' || process.env.DEBUG_MODE === 'true') {
+      logger.debug(`Full message object: ${JSON.stringify(msg)}`);
+    }
+  } catch (error) {
+    logger.error(`Error logging message: ${error.message}`);
+  }
 };
 
 /**
@@ -49,7 +95,10 @@ const trackUserActivity = async (msg) => {
   try {
     const { id: userId, first_name, last_name, username, language_code } = msg.from || {};
     
-    if (!userId) return;
+    if (!userId) {
+      logger.debug('No user ID in message, skipping user tracking');
+      return;
+    }
     
     // Create or update user in database
     await createUserIfNotExists({
@@ -62,7 +111,7 @@ const trackUserActivity = async (msg) => {
     });
 
   } catch (error) {
-    logger.error('Error tracking user activity:', error.message);
+    logger.error(`Error tracking user activity: ${error.message}`);
   }
 };
 
@@ -73,10 +122,20 @@ const trackUserActivity = async (msg) => {
 const processMessageAnalytics = async (msg) => {
   try {
     const supabase = getSupabase();
+    
+    // Skip if Supabase is not connected
+    if (!supabase) {
+      logger.warn('Skipping analytics: Supabase not connected');
+      return;
+    }
+    
     const { id: msgId, chat, from, date } = msg;
     
     // Skip processing for non-user messages (service messages, etc.)
-    if (!from) return;
+    if (!from) {
+      logger.debug('Skipping analytics: No user in message');
+      return;
+    }
     
     // Record basic analytics (message count by user, chat, etc.)
     const { error } = await supabase
@@ -91,10 +150,10 @@ const processMessageAnalytics = async (msg) => {
       });
       
     if (error) {
-      logger.warn('Failed to record analytics:', error.message);
+      logger.warn(`Failed to record analytics: ${error.message}`);
     }
   } catch (error) {
-    logger.error('Error processing message analytics:', error.message);
+    logger.error(`Error processing message analytics: ${error.message}`);
   }
 };
 
@@ -112,11 +171,15 @@ const handleCallbackQuery = async (query) => {
     );
     
     // Always acknowledge the callback query to remove loading state
-    await bot.answerCallbackQuery(id);
+    try {
+      await query.bot.answerCallbackQuery(id);
+    } catch (error) {
+      logger.error(`Error acknowledging callback query: ${error.message}`);
+    }
     
     // The actual handling will be done in command handlers
   } catch (error) {
-    logger.error('Error handling callback query:', error.message);
+    logger.error(`Error handling callback query: ${error.message}`);
   }
 };
 

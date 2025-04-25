@@ -23,7 +23,7 @@ A Telegram bot that facilitates Twitter raid campaigns with Sui blockchain rewar
   
 ## Configuration
   
-Create a `.env` file in the project root with the following variables:
+Copy `.env.example` to `.env` in the project root and fill in your credentials:
   
 ```env
 # Telegram Bot
@@ -41,9 +41,9 @@ SUI_WALLET_PRIVATE_KEY=your_sui_wallet_private_key
 TWITTER_API_KEY=your_twitter_api_key         # also called Client ID
 TWITTER_API_SECRET=your_twitter_api_secret   # also called Client Secret
 # For local development, set callback to localhost:
-TWITTER_CALLBACK_URL=http://localhost:3000/twitter/callback
-# For production, override as needed:
-# TWITTER_CALLBACK_URL=https://yourdomain.com/twitter/callback
+TWITTER_CALLBACK_URL=http://localhost:3000/api/twitter/callback
+# For production:
+# TWITTER_CALLBACK_URL=https://yourdomain.com/api/twitter/callback
   
 # Optional environment settings
 LOG_LEVEL=debug
@@ -105,4 +105,4 @@ Follow these steps to deploy the bot as a web service on Heroku using webhooks:
    heroku logs --tail
    ```
 
-Once deployed, the bot will use webhooks to receive Telegram updates and handle the Twitter OAuth2 callback on production URLs.
+Once deployed, the bot will automatically set its webhook (to `${WEBHOOK_URL}/bot${TELEGRAM_BOT_TOKEN}`) and handle Twitter OAuth2 callbacks at `${TWITTER_CALLBACK_URL}`.

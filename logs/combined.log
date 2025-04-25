@@ -28,3 +28,187 @@
 2025-04-19 16:09:23 INFO: Bot commands registered successfully
 2025-04-19 16:09:23 INFO: Webhook set to https://suiraid.herokuapp.com
 2025-04-19 16:09:23 INFO: Express server is running on port 3000
+2025-04-24 22:02:32 INFO: Bot is starting in production mode
+2025-04-24 22:02:32 INFO: Testing Supabase connection...
+2025-04-24 22:02:32 INFO: Supabase connection test successful, tables exist
+2025-04-24 22:02:32 INFO: Supabase connection established successfully
+2025-04-24 22:02:32 INFO: Connected to Supabase successfully
+2025-04-24 22:02:32 INFO: Bot middleware configured successfully
+2025-04-24 22:02:32 INFO: Bot commands registered successfully
+2025-04-24 22:02:32 INFO: Callback handlers set up successfully
+2025-04-24 22:02:32 INFO: Express server is running on port 3000
+2025-04-24 22:03:58 INFO: Bot is starting in production mode
+2025-04-24 22:03:58 INFO: Testing Supabase connection...
+2025-04-24 22:03:58 INFO: Supabase connection test successful, tables exist
+2025-04-24 22:03:58 INFO: Supabase connection established successfully
+2025-04-24 22:03:58 INFO: Connected to Supabase successfully
+2025-04-24 22:03:58 INFO: Bot middleware configured successfully
+2025-04-24 22:03:58 INFO: Bot commands registered successfully
+2025-04-24 22:03:58 INFO: Callback handlers set up successfully
+2025-04-24 22:03:58 ERROR: Uncaught exception: listen EADDRINUSE: address already in use :::3000
+2025-04-24 22:04:56 INFO: Bot is starting in production mode
+2025-04-24 22:04:56 INFO: Testing Supabase connection...
+2025-04-24 22:04:56 INFO: Supabase connection test successful, tables exist
+2025-04-24 22:04:56 INFO: Supabase connection established successfully
+2025-04-24 22:04:56 INFO: Connected to Supabase successfully
+2025-04-24 22:04:56 INFO: Bot middleware configured successfully
+2025-04-24 22:04:56 INFO: Bot commands registered successfully
+2025-04-24 22:04:56 INFO: Callback handlers set up successfully
+2025-04-24 22:04:56 INFO: Express server is running on port 3000
+2025-04-24 22:05:28 INFO: Bot is starting in production mode
+2025-04-24 22:05:28 INFO: Testing Supabase connection...
+2025-04-24 22:05:28 INFO: Supabase connection test successful, tables exist
+2025-04-24 22:05:28 INFO: Supabase connection established successfully
+2025-04-24 22:05:28 INFO: Connected to Supabase successfully
+2025-04-24 22:05:28 INFO: Bot middleware configured successfully
+2025-04-24 22:05:28 INFO: Bot commands registered successfully
+2025-04-24 22:05:28 INFO: Callback handlers set up successfully
+2025-04-24 22:05:28 INFO: Express server is running on port 3000
+2025-04-24 22:06:09 INFO: Bot is starting in production mode
+2025-04-24 22:06:09 INFO: Testing Supabase connection...
+2025-04-24 22:06:10 INFO: Supabase connection test successful, tables exist
+2025-04-24 22:06:10 INFO: Supabase connection established successfully
+2025-04-24 22:06:10 INFO: Connected to Supabase successfully
+2025-04-24 22:06:10 INFO: Bot middleware configured successfully
+2025-04-24 22:06:10 INFO: Bot commands registered successfully
+2025-04-24 22:06:10 INFO: Callback handlers set up successfully
+2025-04-24 22:06:10 INFO: Express server is running on port 3000
+2025-04-24 22:07:08 INFO: Bot is starting in production mode
+2025-04-24 22:07:08 INFO: Testing Supabase connection...
+2025-04-24 22:07:08 INFO: Supabase connection test successful, tables exist
+2025-04-24 22:07:08 INFO: Supabase connection established successfully
+2025-04-24 22:07:08 INFO: Connected to Supabase successfully
+2025-04-24 22:07:08 INFO: Bot middleware configured successfully
+2025-04-24 22:07:08 INFO: Bot commands registered successfully
+2025-04-24 22:07:08 INFO: Callback handlers set up successfully
+2025-04-24 22:07:08 INFO: Express server is running on port 3000
+2025-04-24 22:12:47 INFO: Bot is starting in production mode
+2025-04-24 22:12:47 INFO: Testing Supabase connection...
+2025-04-24 22:12:48 INFO: Supabase connection test successful, tables exist
+2025-04-24 22:12:48 INFO: Supabase connection established successfully
+2025-04-24 22:12:48 INFO: Connected to Supabase successfully
+2025-04-24 22:12:48 INFO: Bot middleware configured successfully
+2025-04-24 22:12:48 INFO: Bot commands registered successfully
+2025-04-24 22:12:48 INFO: Callback handlers set up successfully
+2025-04-24 22:12:48 INFO: Starting polling
+2025-04-24 22:12:48 INFO: Polling started
+2025-04-24 22:14:04 INFO: Bot is starting in production mode
+2025-04-24 22:14:04 INFO: Testing Supabase connection...
+2025-04-24 22:14:05 INFO: Supabase connection test successful, tables exist
+2025-04-24 22:14:05 INFO: Supabase connection established successfully
+2025-04-24 22:14:05 INFO: Connected to Supabase successfully
+2025-04-24 22:14:05 INFO: Bot middleware configured successfully
+2025-04-24 22:14:05 INFO: Bot commands registered successfully
+2025-04-24 22:14:05 INFO: Callback handlers set up successfully
+2025-04-24 22:14:05 INFO: Starting polling
+2025-04-24 22:14:05 INFO: Polling started
+2025-04-24 22:28:16 INFO: Bot is starting in production mode
+2025-04-24 22:28:16 INFO: Testing Supabase connection...
+2025-04-24 22:28:17 INFO: Supabase connection test successful, tables exist
+2025-04-24 22:28:17 INFO: Supabase connection established successfully
+2025-04-24 22:28:17 INFO: Connected to Supabase successfully
+2025-04-24 22:28:17 INFO: Bot middleware configured successfully
+2025-04-24 22:28:17 INFO: Bot commands registered successfully
+2025-04-24 22:28:17 INFO: Callback handlers set up successfully
+2025-04-24 22:28:17 INFO: Starting polling
+2025-04-24 22:28:17 INFO: Express server is running on port 3000
+2025-04-24 22:28:17 INFO: Polling started
+2025-04-24 22:59:15 INFO: Bot is starting in production mode
+2025-04-24 22:59:15 INFO: Testing Supabase connection...
+2025-04-24 22:59:16 INFO: Supabase connection test successful, tables exist
+2025-04-24 22:59:16 INFO: Supabase connection established successfully
+2025-04-24 22:59:16 INFO: Connected to Supabase successfully
+2025-04-24 22:59:16 INFO: Bot middleware configured successfully
+2025-04-24 22:59:16 INFO: Bot commands registered successfully
+2025-04-24 22:59:16 INFO: Callback handlers set up successfully
+2025-04-24 22:59:16 INFO: Starting polling
+2025-04-24 22:59:16 INFO: Express server is running on port 3000
+2025-04-24 22:59:24 INFO: Polling started
+2025-04-24 23:37:10 ERROR: Polling error: EFATAL: Error: read ECONNRESET
+2025-04-24 23:58:29 INFO: Bot is starting in production mode
+2025-04-24 23:58:29 INFO: Testing Supabase connection...
+2025-04-24 23:58:30 INFO: Supabase connection test successful, tables exist
+2025-04-24 23:58:30 INFO: Supabase connection established successfully
+2025-04-24 23:58:30 INFO: Connected to Supabase successfully
+2025-04-24 23:58:30 INFO: Bot middleware configured successfully
+2025-04-24 23:58:30 INFO: Bot commands registered successfully
+2025-04-24 23:58:30 INFO: Callback handlers set up successfully
+2025-04-24 23:58:30 INFO: Starting polling
+2025-04-24 23:58:30 INFO: Express server is running on port 3000
+2025-04-24 23:58:40 INFO: Polling started
+2025-04-25 00:27:41 INFO: Bot is starting in production mode
+2025-04-25 00:27:41 INFO: Testing Supabase connection...
+2025-04-25 00:27:42 INFO: Supabase connection test successful, tables exist
+2025-04-25 00:27:42 INFO: Supabase connection established successfully
+2025-04-25 00:27:42 INFO: Connected to Supabase successfully
+2025-04-25 00:27:42 INFO: Bot middleware configured successfully
+2025-04-25 00:27:42 INFO: Bot commands registered successfully
+2025-04-25 00:27:42 INFO: Callback handlers set up successfully
+2025-04-25 00:27:42 INFO: Webhook mode enabled
+2025-04-25 00:27:42 INFO: Webhook set to https://suiraid.herokuapp.com
+2025-04-25 00:27:42 INFO: Express server is running on port 3000
+2025-04-25 00:29:41 INFO: Bot is starting in production mode
+2025-04-25 00:29:41 INFO: Testing Supabase connection...
+2025-04-25 00:29:41 INFO: Supabase connection test successful, tables exist
+2025-04-25 00:29:41 INFO: Supabase connection established successfully
+2025-04-25 00:29:41 INFO: Connected to Supabase successfully
+2025-04-25 00:29:41 INFO: Bot middleware configured successfully
+2025-04-25 00:29:41 INFO: Bot commands registered successfully
+2025-04-25 00:29:41 INFO: Callback handlers set up successfully
+2025-04-25 00:29:41 INFO: Webhook mode enabled
+2025-04-25 00:29:41 INFO: Webhook set to https://suiraid.herokuapp.com
+2025-04-25 00:29:41 INFO: Express server is running on port 3000
+2025-04-25 00:35:20 INFO: Bot is starting in production mode
+2025-04-25 00:35:20 INFO: Testing Supabase connection...
+2025-04-25 00:35:20 INFO: Supabase connection test successful, tables exist
+2025-04-25 00:35:20 INFO: Supabase connection established successfully
+2025-04-25 00:35:20 INFO: Connected to Supabase successfully
+2025-04-25 00:35:20 INFO: Bot middleware configured successfully
+2025-04-25 00:35:20 INFO: Bot commands registered successfully
+2025-04-25 00:35:20 INFO: Callback handlers set up successfully
+2025-04-25 00:35:20 INFO: Webhook mode enabled
+2025-04-25 00:35:20 INFO: Webhook set to https://suiraid.herokuapp.com
+2025-04-25 00:35:20 INFO: Express server is running on port 3000
+2025-04-25 01:15:54 INFO: Bot is starting in production mode
+2025-04-25 01:15:54 INFO: Testing Supabase connection...
+2025-04-25 01:15:54 INFO: Supabase connection test successful, tables exist
+2025-04-25 01:15:54 INFO: Supabase connection established successfully
+2025-04-25 01:15:54 INFO: Connected to Supabase successfully
+2025-04-25 01:15:54 INFO: Bot middleware configured successfully
+2025-04-25 01:15:54 INFO: Bot commands registered successfully
+2025-04-25 01:15:54 INFO: Callback handlers set up successfully
+2025-04-25 01:15:54 INFO: Webhook mode enabled
+2025-04-25 01:15:54 INFO: Express server is running on port 3000
+2025-04-25 01:15:54 INFO: Telegram webhook set to https://suiraid.herokuapp.com/bot8104855902:AAHlJlomKyVuOQ_7jsmFbRUZG5Nh5iJFLRY
+2025-04-25 01:27:24 INFO: Bot is starting in production mode
+2025-04-25 01:27:24 INFO: Testing Supabase connection...
+2025-04-25 01:27:24 INFO: Supabase connection test successful, tables exist
+2025-04-25 01:27:24 INFO: Supabase connection established successfully
+2025-04-25 01:27:24 INFO: Connected to Supabase successfully
+2025-04-25 01:27:24 INFO: Bot middleware configured successfully
+2025-04-25 01:27:24 INFO: Bot commands registered successfully
+2025-04-25 01:27:24 INFO: Callback handlers set up successfully
+2025-04-25 01:27:24 INFO: Webhook mode enabled
+2025-04-25 01:27:24 INFO: Express server is running on port 3000
+2025-04-25 01:27:25 INFO: Telegram webhook set to https://suiraid.herokuapp.com/bot8104855902:AAHlJlomKyVuOQ_7jsmFbRUZG5Nh5iJFLRY
+2025-04-25 18:34:49 INFO: Logger initialized at level: info
+2025-04-25 18:34:49 INFO: Environment: production
+2025-04-25 18:34:49 INFO: Initializing Sui service
+2025-04-25 18:34:49 WARN: Supabase client requested but not initialized
+2025-04-25 18:34:49 ERROR: Supabase client not initialized in production. Call connectToSupabase() first.
+2025-04-25 18:34:49 INFO: NODE_ENV: production
+2025-04-25 18:34:49 INFO: Bot username: unknown
+2025-04-25 18:34:49 INFO: WEBHOOK_URL configured: https://suiraid.herokuapp.com/bot8104855902:AAHlJlomKyVuOQ_7jsmFbRUZG5Nh5iJFLRY
+2025-04-25 18:34:49 INFO: Bot initialized in production mode using webhooks
+2025-04-25 18:34:49 INFO: Bot is starting in production mode
+2025-04-25 18:34:49 INFO: Connecting to Supabase at pujvyjbrcasqpgmwpgmx...
+2025-04-25 18:34:49 INFO: Testing Supabase connection...
+2025-04-25 18:34:49 INFO: Sui service initialized successfully
+2025-04-25 18:34:50 INFO: Supabase connection test successful, tables exist
+2025-04-25 18:34:50 INFO: Supabase connection established
+2025-04-25 18:34:50 INFO: Connected to Supabase successfully
+2025-04-25 18:34:50 INFO: Bot middleware configured successfully
+2025-04-25 18:34:50 INFO: Bot commands registered successfully
+2025-04-25 18:34:50 INFO: Express server is running on port 3000
+2025-04-25 18:34:50 INFO: Webhook set to https://suiraid.herokuapp.com/bot8104855902:AAHlJlomKyVuOQ_7jsmFbRUZG5Nh5iJFLRY/bot8104855902:AAHlJlomKyVuOQ_7jsmFbRUZG5Nh5iJFLRY
+2025-04-25 18:34:50 INFO: Bot commands registered with Telegram API
