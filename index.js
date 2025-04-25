@@ -74,7 +74,16 @@ connectToSupabase()
             logger.error('Failed to set Telegram webhook:', errMsg);
           });
         // Route incoming webhook updates
-        app.post(`/bot${config.telegram.token}`, (req, res) => { bot.processUpdate(req.body); res.sendStatus(200); });
+        app.post(`/bot${config.telegram.token}`, (req, res) => {
+          // Log incoming Telegram updates for debugging
+          logger.debug('Received Telegram webhook update', req.body);
+          bot.processUpdate(req.body)
+            .then(() => res.sendStatus(200))
+            .catch(err => {
+              logger.error('Error processing Telegram update:', err);
+              res.sendStatus(500);
+            });
+        });
       } else {
         logger.warn('Webhook is not enabled. Bot will not receive updates.');
       }
